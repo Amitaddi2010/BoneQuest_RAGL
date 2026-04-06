@@ -4,8 +4,12 @@
 
 import { auth } from './auth.js';
 
-const BASE_URL = '/api';
-const AUTH_URL = '/auth';
+const BASE_URL = import.meta.env.VITE_API_URL 
+    ? (import.meta.env.VITE_API_URL + '/api')
+    : '/api';
+const AUTH_URL = import.meta.env.VITE_API_URL 
+    ? (import.meta.env.VITE_API_URL + '/auth')
+    : '/auth';
 
 class ApiClient {
     async request(endpoint, options = {}, baseUrl = BASE_URL) {
