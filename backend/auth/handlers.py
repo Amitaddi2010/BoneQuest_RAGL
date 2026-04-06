@@ -2,6 +2,15 @@
 # BoneQuest v2 — Auth Handlers
 # ============================================================
 
+import bcrypt
+# Fix for passlib compatibility with bcrypt 4.0+ before passlib imports
+try:
+    if not hasattr(bcrypt, "__about__"):
+        class BcryptAbout: pass
+        bcrypt.__about__ = BcryptAbout()
+        bcrypt.__about__.__version__ = getattr(bcrypt, "__version__", "4.0.1")
+except Exception: pass
+
 from datetime import datetime
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session
@@ -16,10 +25,16 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 def hash_password(password: str) -> str:
+    """Hash password with bcrypt truncation (72 char limit)."""
+    if len(password) > 72:
+        password = password[:72]
     return pwd_context.hash(password)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Verify password with bcrypt truncation (72 char limit)."""
+    if len(plain_password) > 72:
+        plain_password = plain_password[:72]
     return pwd_context.verify(plain_password, hashed_password)
 
 
