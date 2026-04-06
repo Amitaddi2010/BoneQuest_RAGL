@@ -1,0 +1,152 @@
+/* ============================================================
+   BoneQuest v2 — Global Styles (The Foundation)
+   ============================================================ */
+
+@import './design-system.css';
+@import './animations.css';
+
+:root {
+    /* Custom Scrollbar for Chrome/Safari */
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-medium) var(--bg-primary);
+}
+
+/* --- Global Layout --- */
+#app {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    background: radial-gradient(circle at 50% -20%, #1a1a2e 0%, var(--bg-primary) 70%);
+    position: relative;
+    overflow-x: hidden;
+}
+
+/* --- Global Backdrop Glows --- */
+.bg-glow-container {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: -1;
+    overflow: hidden;
+}
+
+.bg-glow-1 {
+    position: absolute;
+    top: -10%;
+    right: -10%;
+    width: 60%;
+    height: 60%;
+    background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
+    filter: blur(140px);
+    opacity: 0.15;
+    animation: nebula-drift 30s ease-in-out infinite;
+}
+
+.bg-glow-2 {
+    position: absolute;
+    bottom: -10%;
+    left: -10%;
+    width: 50%;
+    height: 50%;
+    background: radial-gradient(circle, var(--medical-teal-glow) 0%, transparent 70%);
+    filter: blur(120px);
+    opacity: 0.1;
+    animation: nebula-drift 25s ease-in-out infinite reverse;
+}
+
+/* --- Typography Enhancements --- */
+body {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+}
+
+h1, .text-hero {
+    background: linear-gradient(180deg, #FFFFFF 0%, rgba(255, 255, 255, 0.7) 100%);
+    -webkit-background-clip: text;
+    background-clip: text; /* Fix lint */
+    -webkit-text-fill-color: transparent;
+    filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+}
+
+/* --- Navbar (moved from index.html) --- */
+.navbar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: var(--nav-height);
+    z-index: var(--z-sticky);
+    border-bottom: 1px solid var(--border-subtle);
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+}
+
+.nav-container {
+    max-width: var(--max-width);
+    margin: 0 auto;
+    padding: 0 var(--space-6);
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.logo {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-family: var(--font-display);
+    font-size: var(--text-xl);
+    font-weight: var(--weight-extrabold);
+    color: var(--text-primary);
+    text-decoration: none;
+    letter-spacing: -0.03em;
+}
+
+.nav-links {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.nav-link {
+    padding: var(--space-2) var(--space-5);
+    color: var(--text-secondary);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    border-radius: var(--radius-full);
+    transition: all var(--transition-base);
+}
+
+.nav-link:hover {
+    color: var(--text-primary);
+    background: var(--border-subtle);
+}
+
+.nav-link.active {
+    color: var(--text-primary);
+    background: var(--accent-subtle);
+    border: 1px solid var(--border-accent);
+}
+
+/* --- Selection --- */
+::selection {
+    background: var(--accent-primary);
+    color: #fff;
+}
+
+/* --- Mobile Menu Trigger --- */
+.mobile-menu-btn {
+    display: none;
+    background: none;
+    border: none;
+    color: var(--text-primary);
+    font-size: 1.5rem;
+    cursor: pointer;
+}
+
+@media (max-width: 768px) {
+    .mobile-menu-btn { display: block; }
+    .nav-links { display: none; }
+}
