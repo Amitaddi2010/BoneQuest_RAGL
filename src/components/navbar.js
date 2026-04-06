@@ -12,10 +12,19 @@ export function createNavbar(page = 'landing') {
     const user = auth.user;
     const isAdmin = auth.isAdmin;
 
-    // Hide navbar on auth pages
+    // Simplified navbar on auth pages
     if (page === 'auth') {
-        nav.innerHTML = '';
-        nav.className = '';
+        nav.className = 'navbar glass';
+        nav.innerHTML = `
+            <div class="nav-container">
+                <a href="#/" class="logo">
+                    <span>BoneQuest</span>
+                </a>
+                <div class="nav-actions">
+                    <a href="#/" class="btn btn-ghost">← Back to Home</a>
+                </div>
+            </div>
+        `;
         return;
     }
 
@@ -25,7 +34,7 @@ export function createNavbar(page = 'landing') {
     nav.innerHTML = `
         <div class="nav-container">
             <a href="#/" class="logo">
-                <span>BoneQuest</span>
+                <span class="text-gradient">BoneQuest</span>
             </a>
             <div class="nav-links">
                 ${isLanding ? `
@@ -49,12 +58,30 @@ export function createNavbar(page = 'landing') {
                         <button class="btn btn-ghost nav-logout" id="nav-logout-btn" title="Sign out">⏻</button>
                     </div>
                 ` : `
-                    <a href="#/signin" class="btn btn-secondary">Sign In</a>
-                    <a href="#/signup" class="btn btn-primary">Get Started <span class="arrow">↗</span></a>
+                    <div class="hide-mobile" style="display: flex; gap: var(--space-2);">
+                        <a href="#/signin" class="btn btn-secondary">Sign In</a>
+                        <a href="#/signup" class="btn btn-primary">Get Started <span class="arrow">↗</span></a>
+                    </div>
                 `}
+                <button class="mobile-menu-btn" id="mobile-toggle" aria-label="Toggle Menu">
+                    <span class="bar"></span>
+                    <span class="bar"></span>
+                    <span class="bar"></span>
+                </button>
             </div>
         </div>
     `;
+
+    // Mobile Toggle Logic
+    const toggle = nav.querySelector('#mobile-toggle');
+    const navLinks = nav.querySelector('.nav-links');
+    
+    if (toggle && navLinks) {
+        toggle.addEventListener('click', () => {
+            toggle.classList.toggle('active');
+            navLinks.classList.toggle('active');
+        });
+    }
 
     // Logout handler
     const logoutBtn = nav.querySelector('#nav-logout-btn');
