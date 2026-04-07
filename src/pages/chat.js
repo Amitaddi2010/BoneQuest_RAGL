@@ -49,6 +49,7 @@ export function renderChat(container) {
                     </div>
                 </div>
             </aside>
+            <div class="sidebar-overlay" id="sidebar-overlay"></div>
 
             <!-- Chat Main Area -->
             <div class="chat-main">
@@ -152,6 +153,7 @@ export function renderChat(container) {
     const imagePreview   = container.querySelector('#image-preview');
     const sidebarToggle  = container.querySelector('#sidebar-toggle');
     const sidebar        = container.querySelector('#chat-sidebar');
+    const sidebarOverlay = container.querySelector('#sidebar-overlay');
     const micBtn         = container.querySelector('#chat-mic-btn');
     const exportEhrBtn   = container.querySelector('#export-ehr-btn');
     const stopBtn        = container.querySelector('#chat-stop');
@@ -230,7 +232,17 @@ export function renderChat(container) {
     });
 
     // ── Sidebar toggle ──────────────────────────────────────
-    sidebarToggle.addEventListener('click', () => sidebar.classList.toggle('open'));
+    function setSidebarOpen(open) {
+        sidebar.classList.toggle('open', !!open);
+        sidebarOverlay.classList.toggle('open', !!open);
+    }
+
+    sidebarToggle.addEventListener('click', () => {
+        const nextOpen = !sidebar.classList.contains('open');
+        if (nextOpen) setReasoningOpen(false);
+        setSidebarOpen(nextOpen);
+    });
+    sidebarOverlay.addEventListener('click', () => setSidebarOpen(false));
 
     // ── Image attachment ────────────────────────────────────
     imageAttachBtn.addEventListener('click', () => imageInput.click());
@@ -281,12 +293,14 @@ export function renderChat(container) {
                 stopStreaming();
                 return;
             }
+            setSidebarOpen(false);
             setReasoningOpen(false);
         }
     });
 
     window.addEventListener('resize', () => {
         if (window.innerWidth > 1200) setReasoningOpen(false);
+        if (window.innerWidth > 768) setSidebarOpen(false);
     });
 
     // ── Load sessions ───────────────────────────────────────
@@ -328,7 +342,7 @@ export function renderChat(container) {
             item.addEventListener('click', (e) => {
                 if (e.target.closest('.session-delete-btn')) return;
                 loadSession(item.dataset.sessionId);
-                sidebar.classList.remove('open');
+                setSidebarOpen(false);
             });
         });
         sessionList.querySelectorAll('.session-delete-btn').forEach(btn => {
