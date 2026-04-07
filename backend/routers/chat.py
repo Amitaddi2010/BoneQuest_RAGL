@@ -3,6 +3,7 @@
 # ============================================================
 
 import json
+import uuid
 import asyncio
 from datetime import datetime
 from fastapi import APIRouter, HTTPException, Depends, Request
@@ -142,8 +143,15 @@ async def give_feedback(
     """Provide thumbs up (1) or thumbs down (-1) feedback to a specific AI message."""
     data = await request.json()
     score = data.get("score", 0)
+    if score not in (-1, 1):
+        raise HTTPException(status_code=400, detail="Score must be 1 or -1")
 
-    msg = db.query(ChatMessage).filter(ChatMessage.id == message_id).first()
+    msg = (
+        db.query(ChatMessage)
+        .join(ChatSession, ChatSession.id == ChatMessage.session_id)
+        .filter(ChatMessage.id == message_id, ChatSession.user_id == user.id)
+        .first()
+    )
     if not msg:
         raise HTTPException(status_code=404, detail="Message not found")
 
@@ -191,103 +199,60 @@ async def send_message(
     user_id = user.id
     client_host = req.client.host if req.client else None
 
-    # Build conversation context BEFORE entering async generator
-    ctx         = conversation_manager.get_conversation_context(db, request.session_id)
-    ctx_string  = conversation_manager.build_context_string(ctx)
+    # Build history array for the intent classifier
+    history_records = db.query(ChatMessage).filter(
+        ChatMessage.session_id == request.session_id
+    ).order_by(ChatMessage.created_at.desc()).limit(10).all()
+    history = [{"role": m.role, "content": m.content} for m in reversed(history_records)]
 
     async def event_generator():
         try:
-            # ── PHASE 1: Retrieve context & generate thinking ──
-            context = engine._retrieve_context(request.message, request.document_id)
-
-            # Stream thinking block line by line
-            async for thinking_line in engine.generate_thinking_stream(
-                query=request.message,
-                role=role,
-                context=context,
-                conversation_context=ctx_string
-            ):
-                event = {"type": "thinking", "data": thinking_line}
-                yield f"data: {json.dumps(event)}\n\n"
-                await asyncio.sleep(0.05)
-
-            # Signal end of thinking phase — frontend can collapse the block
-            yield f"data: {json.dumps({'type': 'thinking_done'})}\n\n"
-
-            # ── PHASE 2: Full engine query ─────────────────────
-            response = await engine.query(
+            # Consume the unified generator
+            async for event in engine.generate_response_stream(
                 query=request.message,
                 role=role,
                 document_id=request.document_id,
-                conversation_context=ctx_string
-            )
-
-            # ── PHASE 3: Stream trace steps ────────────────────
-            for trace in response.reasoning_trace:
-                event = {
-                    "type": "trace",
-                    "step": trace.step,
-                    "data": json.dumps({"action": trace.action, "detail": trace.detail})
-                }
-                yield f"data: {json.dumps(event)}\n\n"
-                await asyncio.sleep(0.12)
-
-            # ── PHASE 4: Stream answer token by token ──────────
-            words    = response.answer.split(' ')
-            full_text = ""
-            for i, word in enumerate(words):
-                chunk = (" " if i > 0 else "") + word
-                full_text += chunk
-                event = {"type": "token", "data": chunk}
-                yield f"data: {json.dumps(event)}\n\n"
-                await asyncio.sleep(0.018)
-
-            # ── PHASE 5: Rich citations ────────────────────────
-            if response.citations:
-                event = {"type": "citation", "data": json.dumps(response.citations)}
-                yield f"data: {json.dumps(event)}\n\n"
-
-            # ── PHASE 6: Confidence score ──────────────────────
-            event = {"type": "confidence", "data": str(response.confidence)}
-            yield f"data: {json.dumps(event)}\n\n"
-
-            # ── PHASE 7: Save to DB + emit message_id ─────────
-            msg = session_manager.add_message(
-                db=db,
-                session_id=request.session_id,
-                role="assistant",
-                content=response.answer,
-                citations=response.citations,
-                confidence_score=response.confidence,
-                reasoning_trace=[
-                    {"step": t.step, "action": t.action, "detail": t.detail}
-                    for t in response.reasoning_trace
-                ],
-                model_used=response.model,
-            )
-
-            event = {"type": "message_id", "data": str(msg.id)}
-            yield f"data: {json.dumps(event)}\n\n"
-
-            # ── Audit log ──────────────────────────────────────
-            audit = AuditLog(
-                user_id=user_id,
-                action="chat_query",
-                resource_type="session",
-                resource_id=request.session_id,
-                details={
-                    "query_length":    len(request.message),
-                    "role":            role.value,
-                    "confidence":      response.confidence,
-                    "citations_count": len(response.citations),
-                    "model":           response.model,
-                },
-                ip_address=client_host,
-            )
-            db.add(audit)
-            db.commit()
-
-            yield f"data: [DONE]\n\n"
+                history=history
+            ):
+                if event["type"] == "final_payload":
+                    data = event["data"]
+                    # Save DB record
+                    msg = session_manager.add_message(
+                        db=db,
+                        session_id=request.session_id,
+                        role="assistant",
+                        content=data.get("answer", ""),
+                        citations=data.get("citations", []),
+                        confidence_score=data.get("confidence", 0.0),
+                        reasoning_trace=data.get("trace", []),
+                        model_used=data.get("model", "")
+                    )
+                    
+                    # Yield message ID so frontend can tie feedback to it
+                    yield f"data: {json.dumps({'type': 'message_id', 'data': str(msg.id)})}\n\n"
+                    
+                    # Log to audit table
+                    audit = AuditLog(
+                        user_id=user_id,
+                        action="chat_query",
+                        resource_type="session",
+                        resource_id=request.session_id,
+                        details={
+                            "query_length": len(request.message),
+                            "role": role.value,
+                            "intent": data.get("intent", "clinical"),
+                            "confidence": data.get("confidence", 0.0),
+                            "model": data.get("model", ""),
+                        },
+                        ip_address=client_host,
+                    )
+                    db.add(audit)
+                    db.commit()
+                else:
+                    # Default: Just stream it downstream
+                    yield f"data: {json.dumps(event)}\n\n"
+                    if event["type"] in ["trace", "thinking", "token"]:
+                        await asyncio.sleep(0.015)
 
         except Exception as e:
             error_event = {"type": "error", "data": str(e)}
@@ -304,19 +269,32 @@ async def send_message(
     )
 
 
-# ── Legacy query endpoint ──────────────────────────────────
-
 @router.post("/query", response_model=QueryResponse)
 async def query_documents(request: QueryRequest):
     """Submit a clinical query (legacy endpoint, no auth)."""
     try:
-        response = await engine.query(
+        final_payload = None
+        async for event in engine.generate_response_stream(
             query=request.query,
             role=request.role,
             document_id=request.document_id,
-            num_hops=request.num_hops,
+            history=[]
+        ):
+            if event["type"] == "final_payload":
+                final_payload = event["data"]
+                
+        if not final_payload:
+            raise HTTPException(status_code=500, detail="No final payload yielded")
+            
+        return QueryResponse(
+            id=f"q-{uuid.uuid4().hex[:8]}",
+            answer=final_payload.get("answer", ""),
+            confidence=final_payload.get("confidence", 0.0),
+            citations=final_payload.get("citations", []),
+            reasoning_trace=[TraceStep(**t) for t in final_payload.get("trace", [])],
+            role=request.role,
+            model=final_payload.get("model", "")
         )
-        return response
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -327,33 +305,17 @@ async def stream_query(request: QueryRequest):
 
     async def event_generator():
         try:
-            response = await engine.query(
+            async for event in engine.generate_response_stream(
                 query=request.query,
                 role=request.role,
                 document_id=request.document_id,
-                num_hops=request.num_hops,
-            )
-
-            for trace in response.reasoning_trace:
-                event = {
-                    "type": "trace",
-                    "step": trace.step,
-                    "data": json.dumps({"action": trace.action, "detail": trace.detail})
-                }
+                history=[]
+            ):
+                if event["type"] == "final_payload":
+                    continue  # We don't need to yield this for basic streaming
                 yield f"data: {json.dumps(event)}\n\n"
-                await asyncio.sleep(0.15)
-
-            words = response.answer.split(' ')
-            for i, word in enumerate(words):
-                event = {"type": "token", "data": (" " if i > 0 else "") + word}
-                yield f"data: {json.dumps(event)}\n\n"
-                await asyncio.sleep(0.02)
-
-            event = {"type": "confidence", "data": str(response.confidence)}
-            yield f"data: {json.dumps(event)}\n\n"
-
-            yield f"data: [DONE]\n\n"
-
+                if event["type"] in ["trace", "thinking", "token"]:
+                    await asyncio.sleep(0.015)
         except Exception as e:
             error_event = {"type": "error", "data": str(e)}
             yield f"data: {json.dumps(error_event)}\n\n"

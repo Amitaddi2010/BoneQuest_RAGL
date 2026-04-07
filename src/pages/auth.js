@@ -46,7 +46,7 @@ export function renderSignIn(container) {
                         <h2>Welcome back</h2>
                         <p>Sign in to your account to continue</p>
                     </div>
-                    <form id="signin-form" class="auth-form">
+                    <form id="signin-form" class="auth-form" autocomplete="off">
                         <div class="form-group">
                             <label for="signin-email">Email Address</label>
                             <input type="email" id="signin-email" class="form-input" placeholder="doctor@hospital.org" required autocomplete="email">
@@ -130,14 +130,14 @@ export function renderSignUp(container) {
                         <h2>Create Account</h2>
                         <p>Set up your clinical profile</p>
                     </div>
-                    <form id="signup-form" class="auth-form">
+                    <form id="signup-form" class="auth-form" autocomplete="off">
                         <div class="form-group">
                             <label for="signup-name">Full Name</label>
-                            <input type="text" id="signup-name" class="form-input" placeholder="Dr. Jane Smith" required>
+                            <input type="text" id="signup-name" class="form-input" placeholder="Dr. Jane Smith" required autocomplete="name">
                         </div>
                         <div class="form-group">
                             <label for="signup-email">Email Address</label>
-                            <input type="email" id="signup-email" class="form-input" placeholder="doctor@hospital.org" required>
+                            <input type="email" id="signup-email" class="form-input" placeholder="doctor@hospital.org" required autocomplete="email">
                         </div>
                         <div class="form-group">
                             <label for="signup-hospital">Hospital ID <span class="form-optional">(optional)</span></label>

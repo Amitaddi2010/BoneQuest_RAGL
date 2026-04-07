@@ -144,7 +144,7 @@ class ApiClient {
     }
 
     // ── Chat Message (streaming) ────────────────────────────
-    async *streamChatMessage(data) {
+    async *streamChatMessage(data, options = {}) {
         const response = await fetch(`${BASE_URL}/chat/message`, {
             method: 'POST',
             headers: {
@@ -152,34 +152,65 @@ class ApiClient {
                 ...auth.getAuthHeaders(),
             },
             body: JSON.stringify(data),
+            signal: options.signal,
         });
 
         if (response.status === 401) {
             auth.logout();
-            return;
+            throw new Error('Session expired. Please sign in again.');
+        }
+
+        if (!response.ok) {
+            let detail = `HTTP ${response.status}`;
+            try {
+                const errBody = await response.json();
+                detail = errBody.detail || detail;
+            } catch {}
+            throw new Error(detail);
+        }
+
+        if (!response.body) {
+            throw new Error('Empty streaming response body');
         }
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
 
+        const parseSseEvent = (chunk) => {
+            const dataLines = [];
+            for (const rawLine of chunk.split('\n')) {
+                const line = rawLine.trimEnd();
+                if (!line.startsWith('data:')) continue;
+                dataLines.push(line.slice(5).trimStart());
+            }
+            if (!dataLines.length) return null;
+            return dataLines.join('\n');
+        };
+
         while (true) {
             const { done, value } = await reader.read();
             if (done) break;
 
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split('\n');
-            buffer = lines.pop() || '';
+            buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
+            const events = buffer.split('\n\n');
+            buffer = events.pop() || '';
 
-            for (const line of lines) {
-                if (line.startsWith('data: ')) {
-                    const data = line.slice(6);
-                    if (data === '[DONE]') return;
-                    try {
-                        yield JSON.parse(data);
-                    } catch { }
-                }
+            for (const eventChunk of events) {
+                const data = parseSseEvent(eventChunk);
+                if (!data) continue;
+                if (data === '[DONE]') return;
+                try {
+                    yield JSON.parse(data);
+                } catch { }
             }
+        }
+
+        const tail = parseSseEvent(buffer);
+        if (tail && tail !== '[DONE]') {
+            try {
+                yield JSON.parse(tail);
+            } catch { }
         }
     }
 

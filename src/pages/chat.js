@@ -13,22 +13,13 @@ const SUGGESTIONS = [
     "Compare anterolateral vs medial approach for total hip arthroplasty?"
 ];
 
-// ── Section icons & display names ─────────────────────────
-const SECTION_MAP = {
-    '📋': { label: 'Clinical Recommendation', color: 'var(--accent-primary)' },
-    '🔬': { label: 'Guideline Evidence',       color: '#06b6d4' },
-    '💡': { label: 'Clinical Reasoning',       color: '#f59e0b' },
-    '⚠️': { label: 'Considerations',           color: '#ef4444' },
-    '🎯': { label: 'Key Takeaway',             color: '#10b981' },
-};
-
-const SECTION_REGEX = /^(📋|🔬|💡|⚠️|🎯)\s+[A-Z\s]+$/m;
-
 let currentSessionId = null;
 let currentRole      = auth.role || 'resident';
 let isLoading        = false;
 let sessions         = [];
 let lastUserMessage  = '';   // for regenerate
+let activeStreamController = null;
+let lastStreamPayload = null; // for retry stream
 
 export function renderChat(container) {
     container.innerHTML = `
@@ -68,6 +59,7 @@ export function renderChat(container) {
                         <span class="chat-header-model">Groq LLaMA · PageIndex RAG · V2</span>
                     </div>
                     <div class="chat-header-actions" style="margin-left: auto;">
+                        <button class="btn btn-ghost analysis-toggle-btn" id="analysis-toggle-btn" title="Open analysis panel">🔬 Analysis</button>
                         <button class="btn btn-ghost" id="export-ehr-btn" title="Export as Clinical Report" style="display:none; font-size: 13px; font-weight: 600; color: var(--accent-light);">📄 Export EHR</button>
                     </div>
                 </div>
@@ -104,6 +96,12 @@ export function renderChat(container) {
                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="22"></line></svg>
                         </button>
                         <textarea class="chat-input" id="chat-input" placeholder="Dictate findings, ask about protocols, upload X-rays..." rows="1"></textarea>
+                        <button class="chat-stop-btn" id="chat-stop" title="Stop generating" style="display:none;">
+                            <span>⏹</span>
+                        </button>
+                        <button class="chat-stop-btn chat-resume-btn" id="chat-resume" title="Resume with last prompt" style="display:none;">
+                            <span>▶</span>
+                        </button>
                         <button class="chat-send-btn" id="chat-send" title="Send message">
                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13"/><path d="M22 2L15 22L11 13L2 9L22 2Z"/></svg>
                         </button>
@@ -123,11 +121,13 @@ export function renderChat(container) {
                 <div class="reasoning-header" style="flex-direction: column; align-items: stretch; padding-bottom: 0;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-4);">
                         <h3>🔬 Analysis & Context</h3>
-                        <span class="badge badge-accent" style="font-size: 10px;">Live</span>
+                        <div style="display:flex; align-items:center; gap: var(--space-2);">
+                            <span class="badge badge-accent pulse-live" style="font-size: 10px; background: rgba(124, 58, 237, 0.2); border: 1px solid var(--accent-primary); color: var(--accent-light);">Live</span>
+                            <button class="btn btn-ghost reasoning-close-btn" id="reasoning-close-btn" title="Close panel">✕</button>
+                        </div>
                     </div>
                     <div class="panel-tabs">
                         <button class="panel-tab active" data-target="trace-content">Trace</button>
-                        <button class="panel-tab" data-target="patient-context">Anatomy</button>
                     </div>
                 </div>
                 <div class="panel-body">
@@ -135,40 +135,9 @@ export function renderChat(container) {
                     <div id="trace-content" class="tab-content active">
                         <p class="trace-placeholder">Send a query to see reasoning steps...</p>
                     </div>
-                    <!-- Tab 2: Anatomy Selector -->
-                    <div id="patient-context" class="tab-content" style="display: none;">
-                        <div class="anatomy-widget">
-                            <h4 style="margin-bottom: var(--space-4); font-size: var(--text-sm); color: var(--text-secondary); text-align: center;">Interactive Body Map</h4>
-                            <div class="anatomy-svg-wrapper">
-                                <svg viewBox="0 0 100 200" class="anatomy-svg">
-                                    <defs>
-                                        <radialGradient id="bone-glow" cx="50%" cy="50%" r="50%">
-                                            <stop offset="0%" stop-color="var(--accent-light)" stop-opacity="0.6" />
-                                            <stop offset="100%" stop-color="var(--accent-light)" stop-opacity="0" />
-                                        </radialGradient>
-                                    </defs>
-                                    <circle cx="50" cy="20" r="12" class="bone-zone" data-prompt="What are the protocols for traumatic brain injury and skull fractures?"/>
-                                    <rect x="44" y="35" width="12" height="40" rx="3" class="bone-zone" data-prompt="Show AAOS guidelines for cervical and lumbar spine trauma."/>
-                                    <path d="M35,75 L65,75 L58,95 L42,95 Z" class="bone-zone" data-prompt="Latest recommendations for pelvic ring fractures and acetabulum?"/>
-                                    <line x1="42" y1="42" x2="15" y2="65" stroke-width="8" class="bone-zone" data-prompt="Protocols for proximal humerus fractures in elderly?" stroke-linecap="round"/>
-                                    <line x1="58" y1="42" x2="85" y2="65" stroke-width="8" class="bone-zone" data-prompt="Protocols for proximal humerus fractures in elderly?" stroke-linecap="round"/>
-                                    <circle cx="12" cy="72" r="5" class="bone-zone" data-prompt="Distal radius fracture management algorithm?"/>
-                                    <circle cx="88" cy="72" r="5" class="bone-zone" data-prompt="Distal radius fracture management algorithm?"/>
-                                    <line x1="45" y1="95" x2="32" y2="135" stroke-width="10" class="bone-zone" data-prompt="Management of displaced femoral neck fracture?" stroke-linecap="round"/>
-                                    <line x1="55" y1="95" x2="68" y2="135" stroke-width="10" class="bone-zone" data-prompt="Management of displaced femoral neck fracture?" stroke-linecap="round"/>
-                                    <circle cx="32" cy="140" r="6" class="bone-zone" data-prompt="Post-op protocol for total knee arthroplasty?"/>
-                                    <circle cx="68" cy="140" r="6" class="bone-zone" data-prompt="Post-op protocol for total knee arthroplasty?"/>
-                                    <line x1="32" y1="145" x2="32" y2="185" stroke-width="8" class="bone-zone" data-prompt="Comminuted tibial shaft fracture treatment options?" stroke-linecap="round"/>
-                                    <line x1="68" y1="145" x2="68" y2="185" stroke-width="8" class="bone-zone" data-prompt="Comminuted tibial shaft fracture treatment options?" stroke-linecap="round"/>
-                                    <ellipse cx="32" cy="192" rx="10" ry="5" class="bone-zone" data-prompt="Operative indications for calcaneus fractures?"/>
-                                    <ellipse cx="68" cy="192" rx="10" ry="5" class="bone-zone" data-prompt="Operative indications for calcaneus fractures?"/>
-                                </svg>
-                            </div>
-                            <p style="font-size: 11px; color: var(--text-dim); text-align: center; margin-top: var(--space-6); padding: 0 var(--space-4);">Select a region to load clinical trauma protocols.</p>
-                        </div>
-                    </div>
                 </div>
             </aside>
+            <div class="reasoning-overlay" id="reasoning-overlay"></div>
         </div>
     `;
 
@@ -185,6 +154,12 @@ export function renderChat(container) {
     const sidebar        = container.querySelector('#chat-sidebar');
     const micBtn         = container.querySelector('#chat-mic-btn');
     const exportEhrBtn   = container.querySelector('#export-ehr-btn');
+    const stopBtn        = container.querySelector('#chat-stop');
+    const resumeBtn      = container.querySelector('#chat-resume');
+    const analysisToggleBtn = container.querySelector('#analysis-toggle-btn');
+    const reasoningPanel = container.querySelector('#reasoning-panel');
+    const reasoningOverlay = container.querySelector('#reasoning-overlay');
+    const reasoningCloseBtn = container.querySelector('#reasoning-close-btn');
 
     let pendingImage  = null;
     let isRecording   = false;
@@ -285,25 +260,6 @@ export function renderChat(container) {
     }
 
     // ── Panel Tabs ──────────────────────────────────────────
-    container.querySelectorAll('.panel-tab').forEach(tab => {
-        tab.addEventListener('click', () => {
-            container.querySelectorAll('.panel-tab').forEach(t => t.classList.remove('active'));
-            tab.classList.add('active');
-            container.querySelectorAll('.tab-content').forEach(tc => tc.style.display = 'none');
-            container.querySelector(`#${tab.dataset.target}`).style.display = 'block';
-        });
-    });
-
-    // ── Anatomy selector ────────────────────────────────────
-    container.querySelectorAll('.bone-zone').forEach(bone => {
-        bone.addEventListener('click', () => {
-            chatInput.value = bone.dataset.prompt;
-            chatInput.style.height = 'auto';
-            chatInput.style.height = Math.min(chatInput.scrollHeight, 150) + 'px';
-            chatInput.focus();
-        });
-    });
-
     // ── Suggestion chips ────────────────────────────────────
     container.querySelectorAll('.suggestion-chip').forEach(chip => {
         chip.addEventListener('click', () => { chatInput.value = chip.dataset.suggestion; sendMessage(); });
@@ -313,6 +269,25 @@ export function renderChat(container) {
     chatInput.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } });
     sendBtn.addEventListener('click', sendMessage);
     newChatBtn.addEventListener('click', () => startNewChat());
+    stopBtn.addEventListener('click', () => stopStreaming());
+    resumeBtn.addEventListener('click', () => retryStream());
+    analysisToggleBtn.addEventListener('click', () => setReasoningOpen(true));
+    reasoningCloseBtn.addEventListener('click', () => setReasoningOpen(false));
+    reasoningOverlay.addEventListener('click', () => setReasoningOpen(false));
+
+    window.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            if (isLoading) {
+                stopStreaming();
+                return;
+            }
+            setReasoningOpen(false);
+        }
+    });
+
+    window.addEventListener('resize', () => {
+        if (window.innerWidth > 1200) setReasoningOpen(false);
+    });
 
     // ── Load sessions ───────────────────────────────────────
     loadSessions();
@@ -395,21 +370,37 @@ export function renderChat(container) {
     }
 
     function showWelcome() {
+        currentSessionId = null;
         container.querySelector('#chat-title').textContent = 'New Chat';
         exportEhrBtn.style.display = 'none';
         messagesEl.innerHTML = `
             <div class="chat-welcome" id="chat-welcome">
-                <div class="welcome-icon-large">🦴</div>
-                <h2>BoneQuest AI</h2>
-                <p>Clinical-grade orthopaedic decision support with guideline validation.</p>
-                <div class="welcome-suggestions">
-                    ${SUGGESTIONS.map(s => `<button class="suggestion-chip" data-suggestion="${s}"><span class="suggestion-icon">⚕️</span><span>${s}</span></button>`).join('')}
+                <div class="welcome-badge">
+                    <span class="badge-dot"></span>
+                    Clinical AI Active · V2
+                </div>
+                <div class="welcome-icon-large">
+                    <div class="icon-glow"></div>
+                    🦴
+                </div>
+                <h2 class="text-gradient">BoneQuest Assistant</h2>
+                <p>Specialized orthopaedic RAG engine with visible reasoning, structured evidence, and guideline validation.</p>
+                <div class="welcome-suggestions" id="suggestions">
+                    ${SUGGESTIONS.map(s => `
+                        <button class="suggestion-chip" data-suggestion="${s}">
+                            <span class="suggestion-icon">⚕️</span>
+                            <span class="suggestion-text">${s}</span>
+                        </button>
+                    `).join('')}
                 </div>
             </div>
         `;
         messagesEl.querySelectorAll('.suggestion-chip').forEach(chip => {
             chip.addEventListener('click', () => { chatInput.value = chip.dataset.suggestion; sendMessage(); });
         });
+        // Clear panel too
+        const traceContent = container.querySelector('#trace-content');
+        if (traceContent) traceContent.innerHTML = '<p class="trace-placeholder">Send a query to see reasoning steps...</p>';
     }
 
     async function startNewChat() {
@@ -420,8 +411,18 @@ export function renderChat(container) {
     }
 
     // ── MAIN SEND MESSAGE ───────────────────────────────────
-    async function sendMessage() {
-        const text = chatInput.value.trim();
+    function setReasoningOpen(open) {
+        if (!reasoningPanel || !reasoningOverlay) return;
+        reasoningPanel.classList.toggle('open', !!open);
+        reasoningOverlay.classList.toggle('open', !!open);
+        document.body.classList.toggle('reasoning-drawer-open', !!open);
+    }
+
+    async function sendMessage(opts = {}) {
+        const { reuseLast = false, appendUser = true } = opts;
+        const text = reuseLast
+            ? (lastStreamPayload?.message || lastUserMessage || '').trim()
+            : chatInput.value.trim();
         if ((!text && !pendingImage) || isLoading) return;
 
         const welcome = container.querySelector('#chat-welcome');
@@ -442,12 +443,22 @@ export function renderChat(container) {
 
         if (pendingImage) { await handleImageUpload(text); return; }
 
-        lastUserMessage = text;
-        addUserMessage(text);
+        if (!reuseLast) {
+            lastUserMessage = text;
+            lastStreamPayload = {
+                session_id:  currentSessionId,
+                message:     text,
+                role:        currentRole,
+                document_id: 'doc-1',
+            };
+        }
+        if (appendUser) addUserMessage(text);
         chatInput.value = '';
         chatInput.style.height = 'auto';
         isLoading = true;
         sendBtn.disabled = true;
+        stopBtn.style.display = 'flex';
+        resumeBtn.style.display = 'none';
 
         // Reset trace panel
         const traceContent = container.querySelector('#trace-content');
@@ -468,20 +479,25 @@ export function renderChat(container) {
         let thinkingDone = false;
 
         try {
+            activeStreamController = new AbortController();
             for await (const event of api.streamChatMessage({
-                session_id:  currentSessionId,
-                message:     text,
-                role:        currentRole,
-                document_id: 'doc-1'
-            })) {
+                ...lastStreamPayload
+            }, { signal: activeStreamController.signal })) {
+
+                // ── Intent classification (informational) ───
+                if (event.type === 'intent') {
+                    // Store intent for future use (e.g. conditional rendering)
+                    continue;
+                }
 
                 // ── Thinking block ──────────────────────────
-                if (event.type === 'thinking') {
+                else if (event.type === 'thinking') {
                     appendThinkingLine(thinkingBody, event.data);
                     messagesEl.scrollTop = messagesEl.scrollHeight;
                 }
                 else if (event.type === 'thinking_done') {
-                    collapseThinkingBlock(thinkingEl);
+                    // Delay collapse slightly so user can see final thinking step
+                    setTimeout(() => collapseThinkingBlock(thinkingEl), 600);
                     thinkingDone = true;
                 }
 
@@ -520,6 +536,11 @@ export function renderChat(container) {
                     finalMsgId = event.data;
                 }
 
+                // ── Done signal — stop consuming ─────────────
+                else if (event.type === 'done') {
+                    break;
+                }
+
                 // ── Error ────────────────────────────────────
                 else if (event.type === 'error') {
                     throw new Error(event.data);
@@ -533,15 +554,69 @@ export function renderChat(container) {
             if (!thinkingDone) collapseThinkingBlock(thinkingEl);
 
         } catch (err) {
-            console.error('Stream error:', err);
-            bubble.innerHTML = renderMarkdown('⚠️ Failed to generate response. Please try again.');
-            if (meta) meta.style.display = 'none';
+            // Abort is user-driven; keep partial text and mark it stopped.
+            if (err?.name === 'AbortError') {
+                if (fullText.trim()) {
+                    finalizeAiMessage(msgEl, bubble, meta, fullText + `\n\n—\n⏹ *Generation stopped.*`, confidence, liveCitations, null);
+                } else {
+                    bubble.innerHTML = renderMarkdown('⏹ *Generation stopped.*');
+                    if (meta) meta.style.display = 'none';
+                }
+                if (!thinkingDone) collapseThinkingBlock(thinkingEl);
+                resumeBtn.style.display = 'flex';
+            } else {
+                console.error('Stream error:', err);
+                const errorMsg = err.message || 'Unknown error';
+                bubble.innerHTML = renderMarkdown(
+                    `⚠️ **Failed to generate response.**\n\n${
+                        errorMsg.includes('Session expired')
+                            ? 'Your session has expired. Please sign in again.'
+                            : 'Please try again. If this persists, check your connection.'
+                    }\n\n**Actions:** Retry stream or Regenerate.`
+                );
+                if (meta) {
+                    meta.style.display = 'flex';
+                    meta.style.flexDirection = 'column';
+                    meta.style.gap = '8px';
+                    meta.innerHTML = `
+                        <div class="message-actions">
+                            <button class="action-btn retry-btn" title="Retry stream">Retry</button>
+                            <button class="action-btn regen-btn" title="Regenerate response">Regenerate</button>
+                        </div>
+                    `;
+                    const retryBtn = meta.querySelector('.retry-btn');
+                    const regenBtn = meta.querySelector('.regen-btn');
+                    if (retryBtn) retryBtn.addEventListener('click', () => retryStream());
+                    if (regenBtn) regenBtn.addEventListener('click', () => {
+                        if (isLoading) return;
+                        chatInput.value = lastUserMessage;
+                        sendMessage();
+                    });
+                }
+            }
+        } finally {
+            activeStreamController = null;
         }
 
         isLoading = false;
         sendBtn.disabled = false;
+        stopBtn.style.display = 'none';
         messagesEl.scrollTop = messagesEl.scrollHeight;
         await loadSessions();
+    }
+
+    window.addEventListener('beforeunload', () => {
+        if (activeStreamController) activeStreamController.abort();
+    });
+
+    function stopStreaming() {
+        if (!activeStreamController) return;
+        try { activeStreamController.abort(); } catch {}
+    }
+
+    async function retryStream() {
+        if (isLoading || !lastStreamPayload || !currentSessionId) return;
+        await sendMessage({ reuseLast: true, appendUser: false });
     }
 
     // ── Create the AI message skeleton (with thinking block) ─
@@ -562,8 +637,12 @@ export function renderChat(container) {
                     <div class="thinking-body" id="thinking-body"></div>
                 </div>
                 <!-- Streaming response bubble -->
-                <div class="message-bubble" id="streaming-bubble">
-                    <div class="typing-indicator"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
+                <div class="message-bubble streaming-bubble" id="streaming-bubble">
+                    <div class="ai-loader" aria-live="polite">
+                        <div class="ai-loader-line w-90"></div>
+                        <div class="ai-loader-line w-70"></div>
+                        <div class="ai-loader-line w-50"></div>
+                    </div>
                 </div>
                 <div class="message-meta" id="streaming-meta" style="display:none;"></div>
             </div>
@@ -607,19 +686,31 @@ export function renderChat(container) {
 
     // ── Render streaming content — parse sections on-the-fly ─
     function renderStreamingContent(bubble, fullText) {
+        bubble.classList.add('streaming-bubble');
         if (hasSections(fullText)) {
-            bubble.innerHTML = renderSections(fullText, true /* streaming */);
+            bubble.innerHTML = `
+                <div class="streaming-response">
+                    ${renderSections(fullText, true /* streaming */)}
+                    <span class="streaming-caret" aria-hidden="true"></span>
+                </div>
+            `;
         } else {
-            bubble.innerHTML = renderMarkdown(fullText);
+            bubble.innerHTML = `
+                <div class="streaming-response">
+                    ${renderMarkdown(fullText)}
+                    <span class="streaming-caret" aria-hidden="true"></span>
+                </div>
+            `;
         }
     }
 
     // ── Finalize after stream completes ────────────────────
     function finalizeAiMessage(msgEl, bubble, meta, fullText, confidence, citations, messageId) {
-        // Parse and render structured sections
+        bubble.classList.remove('streaming-bubble');
+        // Parse and render structured sections — ALL EXPANDED by default
         if (hasSections(fullText)) {
-            bubble.innerHTML = renderSections(fullText, false);
-            // Attach toggle listeners
+            bubble.innerHTML = renderSections(fullText, true /* keep all open */);
+            // Attach toggle listeners for user to collapse/expand
             bubble.querySelectorAll('.section-header').forEach(header => {
                 header.addEventListener('click', () => {
                     const section = header.closest('.response-section');
@@ -698,8 +789,8 @@ export function renderChat(container) {
 
         return validSections.map((sec, idx) => {
             const bodyText = sec.body.join('\n').trim();
-            // First section open, rest collapsed (unless streaming — all open)
-            const isOpen = isStreaming ? true : idx === 0;
+            // Always open all sections — users can collapse manually
+            const isOpen = true;
             return `
                 <div class="response-section ${isOpen ? 'open' : ''}">
                     <button class="section-header">
@@ -748,7 +839,13 @@ export function renderChat(container) {
                     </div>
                     ${c.reasoning ? `
                     <div class="citation-reasoning" style="display:none;">
-                        <p><strong>Why this applies:</strong> ${escapeHtml(c.reasoning)}</p>
+                        <span class="reasoning-label">🧠 Clinical Reasoning</span>
+                        <p>${escapeHtml(c.reasoning)}</p>
+                    </div>` : ''}
+                    ${c.content ? `
+                    <div class="citation-content" style="display:none;">
+                        <span class="content-label">📜 Exact Reference</span>
+                        <pre class="content-text">${escapeHtml(c.content)}</pre>
                     </div>` : ''}
                 </div>
             `;
@@ -788,12 +885,15 @@ export function renderChat(container) {
     // ── Wire citation card expand/collapse ──────────────────
     function wireCitationCards(container) {
         container.querySelectorAll('.citation-card').forEach(card => {
-            const reasoning = card.querySelector('.citation-reasoning');
-            if (!reasoning) return;
             card.addEventListener('click', () => {
-                const isOpen = reasoning.style.display !== 'none';
-                reasoning.style.display = isOpen ? 'none' : 'block';
-                card.classList.toggle('expanded', !isOpen);
+                const reasoning = card.querySelector('.citation-reasoning');
+                const content   = card.querySelector('.citation-content');
+                const isExpanded = card.classList.contains('expanded');
+                
+                if (reasoning) reasoning.style.display = isExpanded ? 'none' : 'block';
+                if (content)   content.style.display   = isExpanded ? 'none' : 'block';
+                
+                card.classList.toggle('expanded', !isExpanded);
             });
         });
     }
@@ -861,7 +961,7 @@ export function renderChat(container) {
         const msg = document.createElement('div');
         msg.className = 'message message-ai';
 
-        let bubbleHtml = hasSections(content) ? renderSections(content, false) : renderMarkdown(content);
+        let bubbleHtml = hasSections(content) ? renderSections(content, true /* all open */) : renderMarkdown(content);
 
         let metaHtml = '';
         if (confidence) {
@@ -981,12 +1081,28 @@ export function renderChat(container) {
         const traceContent = container.querySelector('#trace-content');
         if (!traceContent) return;
 
+        // Map actions to icons
+        const getStepIcon = (action) => {
+            const a = action.toLowerCase();
+            if (a.includes('scan') || a.includes('search')) return '🔍';
+            if (a.includes('think') || a.includes('reason')) return '🧠';
+            if (a.includes('retrieve') || a.includes('fetch')) return '📚';
+            if (a.includes('validate') || a.includes('check')) return '✅';
+            return '⚙️';
+        };
+
         let html = '<div class="trace-steps">';
         trace.forEach((t, i) => {
+            const actionText = t.action || t;
             html += `
                 <div class="trace-step" style="animation-delay: ${i * 0.1}s;">
-                    <div class="trace-step-number">Step ${i + 1}</div>
-                    <div class="trace-step-action">${t.action || t}</div>
+                    <div class="trace-step-header">
+                        <span class="trace-step-icon">${getStepIcon(actionText)}</span>
+                        <div class="trace-step-meta">
+                            <div class="trace-step-number">Step ${i + 1}</div>
+                            <div class="trace-step-action">${actionText}</div>
+                        </div>
+                    </div>
                     ${t.detail ? `<div class="trace-step-detail">${t.detail}</div>` : ''}
                 </div>
             `;
@@ -995,19 +1111,62 @@ export function renderChat(container) {
 
         if (confidence > 0) {
             const level = confidence > 0.85 ? 'high' : confidence > 0.6 ? 'medium' : 'low';
-            html += `<div class="trace-confidence"><span class="confidence-badge confidence-${level}">🎯 ${(confidence * 100).toFixed(0)}%</span></div>`;
+            html += `
+                <div class="trace-confidence-rich">
+                    <div class="confidence-label">
+                        <span>🎯 AI Confidence</span>
+                        <span class="confidence-value">${(confidence * 100).toFixed(0)}%</span>
+                    </div>
+                    <div class="confidence-progress-container">
+                        <div class="confidence-progress-bar ${level}" style="width: ${confidence * 100}%"></div>
+                    </div>
+                </div>
+            `;
         }
 
         if (citations?.length) {
-            html += '<div class="sources-list"><h4>📚 Sources</h4>';
+            html += '<div class="sources-list-rich"><h4>📚 Clinical Sources</h4><div class="source-badges">';
             citations.forEach(c => {
                 const label = typeof c === 'string' ? c : (c.page_range || c.section || 'Reference');
-                html += `<div class="source-item"><span class="source-badge">${label}</span></div>`;
+                const title = typeof c === 'object' ? (c.guideline || c.section || '') : '';
+                const contentText = typeof c === 'object' && c.content ? c.content : '';
+                html += `
+                    <div class="source-chip" title="Click to view reference" data-content="${escapeHtml(contentText)}">
+                        <span class="source-chip-icon">📄</span>
+                        <span class="source-chip-label">${label}</span>
+                    </div>
+                `;
             });
+            html += '</div>';
+
+            // Add full reference preview area
+            html += `<div id="trace-reference-preview" class="reference-preview-box" style="display:none;">
+                        <div class="preview-header">
+                            <span class="preview-title">📜 Exact Reference</span>
+                            <button class="preview-close">✕</button>
+                        </div>
+                        <div class="preview-body"></div>
+                     </div>`;
             html += '</div>';
         }
 
         traceContent.innerHTML = html;
+
+        // Wire source chips to preview
+        traceContent.querySelectorAll('.source-chip').forEach(chip => {
+            chip.addEventListener('click', () => {
+                const preview = traceContent.querySelector('#trace-reference-preview');
+                const body    = preview.querySelector('.preview-body');
+                body.innerText = chip.dataset.content || 'No text content available for this reference.';
+                preview.style.display = 'block';
+            });
+        });
+        const closeBtn = traceContent.querySelector('.preview-close');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => {
+                traceContent.querySelector('#trace-reference-preview').style.display = 'none';
+            });
+        }
     }
 }
 
@@ -1021,8 +1180,17 @@ function escapeHtml(text) {
 }
 
 function renderMarkdown(text) {
-    try { return marked.parse(text || '', { breaks: true }); }
+    try {
+        const normalized = normalizeChatMarkdown(text || '');
+        return marked.parse(normalized, { breaks: true });
+    }
     catch { return (text || '').replace(/\n/g, '<br>'); }
+}
+
+function normalizeChatMarkdown(text) {
+    return text.replace(/^\s{0,3}#{1,6}\s+(.+)$/gm, (_match, title) => {
+        return `**${title.trim()}**`;
+    });
 }
 
 function formatDate(iso) {
