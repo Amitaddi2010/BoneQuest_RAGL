@@ -1,5 +1,5 @@
 # ============================================================
-# BoneQuest v2 — Chat Router (replaces query.py)
+# BoneQuest v2 — Chat Router (V2: Thinking Block + Rich Citations)
 # ============================================================
 
 import json
@@ -19,6 +19,7 @@ from models.schemas import (
 from models.db_models import User, ChatSession, ChatMessage, AuditLog
 from auth.permissions import get_current_user, get_optional_user
 from chat.session_manager import session_manager
+from chat.conversation_manager import conversation_manager
 from services.pageindex_engine import PageIndexEngine
 
 router = APIRouter()
@@ -115,16 +116,16 @@ async def get_session_messages(
         "session_id": session_id,
         "messages": [
             {
-                "id": m.id,
-                "role": m.role,
-                "content": m.content,
-                "citations": m.citations,
+                "id":               m.id,
+                "role":             m.role,
+                "content":          m.content,
+                "citations":        m.citations,
                 "confidence_score": m.confidence_score,
-                "reasoning_trace": m.reasoning_trace,
-                "tokens_used": m.tokens_used,
-                "model_used": m.model_used,
-                "user_feedback": m.user_feedback,
-                "created_at": m.created_at.isoformat() + "Z" if m.created_at else "",
+                "reasoning_trace":  m.reasoning_trace,
+                "tokens_used":      m.tokens_used,
+                "model_used":       m.model_used,
+                "user_feedback":    m.user_feedback,
+                "created_at":       m.created_at.isoformat() + "Z" if m.created_at else "",
             }
             for m in messages
         ]
@@ -141,15 +142,14 @@ async def give_feedback(
     """Provide thumbs up (1) or thumbs down (-1) feedback to a specific AI message."""
     data = await request.json()
     score = data.get("score", 0)
-    
+
     msg = db.query(ChatMessage).filter(ChatMessage.id == message_id).first()
     if not msg:
         raise HTTPException(status_code=404, detail="Message not found")
-        
+
     msg.user_feedback = score
     db.commit()
-    
-    # Audit log the feedback
+
     audit = AuditLog(
         user_id=user.id,
         action="chat_feedback",
@@ -159,10 +159,11 @@ async def give_feedback(
     )
     db.add(audit)
     db.commit()
-    
+
     return {"message": "Feedback recorded", "score": score}
 
-# ── Chat Message (with streaming) ──────────────────────────
+
+# ── Chat Message (streaming with thinking block) ────────────
 
 @router.post("/message")
 async def send_message(
@@ -171,8 +172,8 @@ async def send_message(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Send a message and get a streaming AI response."""
-    # Verify session ownership
+    """Send a message; streams thinking → trace → tokens → citations → confidence → done."""
+
     session = session_manager.get_session(db, request.session_id, user.id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -184,26 +185,44 @@ async def send_message(
         role="user",
         content=request.message
     )
-
-    # Auto-title on first message
     session_manager.auto_title(db, request.session_id, request.message)
 
-    # Use the role from the user's account or from request
     role = UserRole(request.role) if request.role else UserRole(user.role)
-
     user_id = user.id
     client_host = req.client.host if req.client else None
 
+    # Build conversation context BEFORE entering async generator
+    ctx         = conversation_manager.get_conversation_context(db, request.session_id)
+    ctx_string  = conversation_manager.build_context_string(ctx)
+
     async def event_generator():
         try:
-            # Generate response using the engine
+            # ── PHASE 1: Retrieve context & generate thinking ──
+            context = engine._retrieve_context(request.message, request.document_id)
+
+            # Stream thinking block line by line
+            async for thinking_line in engine.generate_thinking_stream(
+                query=request.message,
+                role=role,
+                context=context,
+                conversation_context=ctx_string
+            ):
+                event = {"type": "thinking", "data": thinking_line}
+                yield f"data: {json.dumps(event)}\n\n"
+                await asyncio.sleep(0.05)
+
+            # Signal end of thinking phase — frontend can collapse the block
+            yield f"data: {json.dumps({'type': 'thinking_done'})}\n\n"
+
+            # ── PHASE 2: Full engine query ─────────────────────
             response = await engine.query(
                 query=request.message,
                 role=role,
                 document_id=request.document_id,
+                conversation_context=ctx_string
             )
 
-            # Send trace steps
+            # ── PHASE 3: Stream trace steps ────────────────────
             for trace in response.reasoning_trace:
                 event = {
                     "type": "trace",
@@ -211,27 +230,28 @@ async def send_message(
                     "data": json.dumps({"action": trace.action, "detail": trace.detail})
                 }
                 yield f"data: {json.dumps(event)}\n\n"
-                await asyncio.sleep(0.15)
+                await asyncio.sleep(0.12)
 
-            # Send citations
+            # ── PHASE 4: Stream answer token by token ──────────
+            words    = response.answer.split(' ')
+            full_text = ""
+            for i, word in enumerate(words):
+                chunk = (" " if i > 0 else "") + word
+                full_text += chunk
+                event = {"type": "token", "data": chunk}
+                yield f"data: {json.dumps(event)}\n\n"
+                await asyncio.sleep(0.018)
+
+            # ── PHASE 5: Rich citations ────────────────────────
             if response.citations:
                 event = {"type": "citation", "data": json.dumps(response.citations)}
                 yield f"data: {json.dumps(event)}\n\n"
 
-            # Stream answer token by token
-            words = response.answer.split(' ')
-            full_text = ""
-            for i, word in enumerate(words):
-                full_text += (" " if i > 0 else "") + word
-                event = {"type": "token", "data": (" " if i > 0 else "") + word}
-                yield f"data: {json.dumps(event)}\n\n"
-                await asyncio.sleep(0.02)
-
-            # Send confidence
+            # ── PHASE 6: Confidence score ──────────────────────
             event = {"type": "confidence", "data": str(response.confidence)}
             yield f"data: {json.dumps(event)}\n\n"
 
-            # Save assistant message to DB first to get ID
+            # ── PHASE 7: Save to DB + emit message_id ─────────
             msg = session_manager.add_message(
                 db=db,
                 session_id=request.session_id,
@@ -239,26 +259,28 @@ async def send_message(
                 content=response.answer,
                 citations=response.citations,
                 confidence_score=response.confidence,
-                reasoning_trace=[{"step": t.step, "action": t.action, "detail": t.detail} for t in response.reasoning_trace],
+                reasoning_trace=[
+                    {"step": t.step, "action": t.action, "detail": t.detail}
+                    for t in response.reasoning_trace
+                ],
                 model_used=response.model,
             )
 
-            # Send the database message ID so the frontend can attach feedback
             event = {"type": "message_id", "data": str(msg.id)}
             yield f"data: {json.dumps(event)}\n\n"
 
-            # Audit log
+            # ── Audit log ──────────────────────────────────────
             audit = AuditLog(
                 user_id=user_id,
                 action="chat_query",
                 resource_type="session",
                 resource_id=request.session_id,
                 details={
-                    "query_length": len(request.message),
-                    "role": role.value,
-                    "confidence": response.confidence,
+                    "query_length":    len(request.message),
+                    "role":            role.value,
+                    "confidence":      response.confidence,
                     "citations_count": len(response.citations),
-                    "model": response.model,
+                    "model":           response.model,
                 },
                 ip_address=client_host,
             )
@@ -276,13 +298,13 @@ async def send_message(
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
+            "Connection":    "keep-alive",
             "X-Accel-Buffering": "no"
         }
     )
 
 
-# ── Legacy query endpoint (no auth required for backward compat) ──
+# ── Legacy query endpoint ──────────────────────────────────
 
 @router.post("/query", response_model=QueryResponse)
 async def query_documents(request: QueryRequest):
@@ -312,7 +334,6 @@ async def stream_query(request: QueryRequest):
                 num_hops=request.num_hops,
             )
 
-            # Send trace steps
             for trace in response.reasoning_trace:
                 event = {
                     "type": "trace",
@@ -322,14 +343,12 @@ async def stream_query(request: QueryRequest):
                 yield f"data: {json.dumps(event)}\n\n"
                 await asyncio.sleep(0.15)
 
-            # Stream answer
             words = response.answer.split(' ')
             for i, word in enumerate(words):
                 event = {"type": "token", "data": (" " if i > 0 else "") + word}
                 yield f"data: {json.dumps(event)}\n\n"
                 await asyncio.sleep(0.02)
 
-            # Confidence
             event = {"type": "confidence", "data": str(response.confidence)}
             yield f"data: {json.dumps(event)}\n\n"
 
@@ -344,7 +363,7 @@ async def stream_query(request: QueryRequest):
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
+            "Connection":    "keep-alive",
             "X-Accel-Buffering": "no"
         }
     )
