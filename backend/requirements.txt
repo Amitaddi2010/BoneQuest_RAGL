@@ -14,7 +14,19 @@ sqlalchemy==2.0.25
 
 # External APIs
 groq==0.13.0
+anthropic==0.57.1
 pdfplumber==0.11.0
+pypdf==5.1.0
+python-docx==1.1.2
+sentence-transformers==3.2.1
+numpy>=1.24.0
+
+# PageIndex — Reasoning-based tree RAG
+# NOTE: PageIndex must be cloned separately: git clone https://github.com/VectifyAI/PageIndex.git lib/PageIndex
+litellm>=1.83.0
+pymupdf>=1.26.4
+PyPDF2>=3.0.1
+pyyaml>=6.0.2
 
 # Auth
 python-jose[cryptography]==3.3.0

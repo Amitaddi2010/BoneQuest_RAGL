@@ -6,69 +6,27 @@ import os
 import uuid
 import json
 import re
-from typing import List, Optional, AsyncGenerator
+from typing import List, Optional, AsyncGenerator, Dict, Any, Tuple
 from pydantic import BaseModel
 from models.schemas import QueryResponse, TraceStep, UserRole, Citation
 from config import settings
+from services.hybrid_retriever import HybridRetriever
+from database import SessionLocal
 
 GROQ_API_KEY = settings.GROQ_API_KEY
 GROQ_MODEL   = settings.GROQ_TEXT_MODEL
 PAGEINDEX_API_KEY = settings.PAGEINDEX_API_KEY
+GROQ_SMALL_MODEL = getattr(settings, "GROQ_SMALL_MODEL", "") or GROQ_MODEL
+USE_PAGEINDEX_CLOUD = os.getenv("USE_PAGEINDEX_CLOUD", "false").lower() == "true"
 
-# ── Clinical Knowledge Base (simulates PageIndex tree) ─────
-
-CLINICAL_CONTEXT = {
-    "doc-1": {
-        "title": "PGIMER Orthopaedic Guidelines 2025",
-        "sections": {
-            "fracture": {
-                "content": """FRACTURE MANAGEMENT GUIDELINES:
-- Initial Assessment: Complete neurovascular examination, radiographic evaluation (AP/Lateral), classify using AO/OTA system
-- Tibial shaft fractures: Intramedullary nailing is gold standard for displaced fractures. Closed reduction preferred. Union expected 12-16 weeks.
-- Comminuted patterns: Consider locking screws at both ends. Reamed nailing preferred for closed fractures.
-- Femoral neck fractures: Age-dependent management. <60yo: internal fixation. >60yo: arthroplasty. Displaced: hemiarthroplasty or THR.
-- Open fractures: Gustilo-Anderson classification. Emergency debridement within 6 hours. IV antibiotics immediately.""",
-                "pages": "p. 1-42",
-                "section_title": "Fracture Management",
-                "evidence_strength": "strong"
-            },
-            "joint_replacement": {
-                "content": """JOINT REPLACEMENT PROTOCOLS:
-- Total Hip Arthroplasty: Posterior approach most common. Anterolateral for reduced dislocation risk. Cement for osteoporotic bone.
-- Total Knee Arthroplasty: Medial parapatellar approach standard. Tourniquet time <90min. PCL-retaining vs substituting based on deformity.
-- Revision Surgery: Bone defect classification essential. Augments and cones for metaphyseal defects.""",
-                "pages": "p. 43-78",
-                "section_title": "Joint Replacement",
-                "evidence_strength": "strong"
-            },
-            "comorbidity": {
-                "content": """COMORBIDITY CONSIDERATIONS:
-- Diabetes: Perioperative glucose target 140-180 mg/dL. HbA1c <8% for elective surgery. Infection risk 3.2x higher in uncontrolled DM. Extended antibiotic prophylaxis (48h vs 24h). Delayed union risk increases 25-30%.
-- Cardiac: Pre-op cardiology clearance for major procedures. Beta-blocker optimization. Regional anesthesia preferred. DVT prophylaxis critical.
-- Geriatric: Falls risk assessment mandatory. Bone density evaluation. Calcium + Vitamin D supplementation. Early mobilization protocol.""",
-                "pages": "p. 79-110",
-                "section_title": "Comorbidity Considerations",
-                "evidence_strength": "moderate"
-            },
-            "postop": {
-                "content": """POST-OPERATIVE CARE:
-- Rehabilitation: Phase-based protocol. Week 1-2: ROM exercises, weight-bearing as tolerated. Week 3-6: progressive strengthening. Month 2-3: functional training.
-- Infection Prevention: Cefazolin 2g IV pre-op. Wound inspection at 48h, 1 week, 2 weeks. Risk factors: diabetes, obesity, smoking, immunosuppression.
-- ACL Reconstruction Rehab: Week 1-2: extension emphasis, quad sets. Week 3-6: ROM 0-120°, stationary cycling. Month 2-4: closed chain exercises. Month 4-6: sport-specific. Return criteria: >90% limb symmetry.""",
-                "pages": "p. 111-142",
-                "section_title": "Post-operative Care",
-                "evidence_strength": "strong"
-            }
-        }
-    }
-}
-
-SECTION_KEYWORDS = {
-    "fracture":         ['fracture', 'break', 'broken', 'tibial', 'femoral', 'shaft', 'comminuted', 'displaced', 'open fracture'],
-    "joint_replacement":['replacement', 'arthroplasty', 'hip', 'knee', 'thr', 'tka', 'approach', 'revision'],
-    "comorbidity":      ['diabetes', 'diabetic', 'cardiac', 'comorbid', 'geriatric', 'elderly', 'chf', 'heart', 'age', 'dm'],
-    "postop":           ['rehab', 'rehabilitation', 'recovery', 'postop', 'post-op', 'infection', 'acl', 'follow-up', 'protocol']
-}
+# Optional PageIndex client (real retrieval over indexed documents)
+pi_client = None
+try:
+    from pageindex.client import PageIndexClient  # type: ignore
+    if PAGEINDEX_API_KEY and USE_PAGEINDEX_CLOUD:
+        pi_client = PageIndexClient(api_key=PAGEINDEX_API_KEY)
+except Exception:
+    pi_client = None
 
 
 # ── Prompts ────────────────────────────────────────────────
@@ -136,10 +94,58 @@ Keep each step SHORT (one sentence). Output exactly 5 numbered steps covering:
 4. What are the key treatment options?
 5. How confident are you and why?"""
 
+STRUCTURED_REASONING_POLICY = """
+You are BoneQuest, a clinical orthopedic decision support assistant.
+
+BEFORE answering ANY question, you MUST follow this exact reasoning chain:
+
+STEP 1 - CLASSIFY: What type of question is this?
+- Types: [complication | diagnosis | treatment | anatomy | pharmacology | MCQ-except | MCQ-most-likely | MCQ-best-next-step]
+
+STEP 2 - IDENTIFY: Extract key clinical entities
+- Condition, patient factors, age, comorbidities, fracture type, implant.
+
+STEP 3 - RETRIEVE: What guideline/source covers this?
+- Name the specific guideline and section/recommendation from retrieved context.
+
+STEP 4 - VERIFY EACH OPTION (for MCQ questions only):
+- For EXCEPT questions: evaluate ALL options independently as TRUE or FALSE.
+- The correct answer to an EXCEPT question = the FALSE statement.
+
+STEP 5 - VALIDATE: Does your answer contradict any retrieved guideline?
+- If yes, revise or explicitly flag contradiction risk.
+- If no guideline covers this, state "No strong guideline evidence".
+
+STEP 6 - CONFIDENCE: Assign based on evidence grade:
+- Strong guideline evidence = 85-95%
+- Moderate evidence = 70-84%
+- Limited/consensus evidence = 50-69%
+- No guideline found = 30-49%
+- Never assign >95% unless multiple strong sources agree.
+
+OUTPUT FORMAT:
+1) "REASONING STEPS" with Step 1 through Step 6.
+2) "FINAL ANSWER".
+"""
+
+VALIDATION_PROMPT = """You are a strict orthopedic answer validator.
+You validate an existing model answer against the retrieved context.
+
+Return ONLY JSON with keys:
+- contradiction: boolean
+- evidence_level: one of ["strong", "moderate", "limited", "none"]
+- suggested_confidence: integer 30-95
+- rationale: short string
+
+For MCQ input, also include:
+- option_checks: array of objects [{ "option": "...", "label": "true|false|uncertain", "why": "..." }]
+"""
+
 
 class PageIndexEngine:
     def __init__(self):
         self.groq_client = None
+        self.hybrid_retriever = HybridRetriever()
         self._init_groq()
 
     def _init_groq(self):
@@ -150,6 +156,102 @@ class PageIndexEngine:
             pass
         except Exception:
             pass
+
+    def _can_use_pageindex(self, document_id: str) -> bool:
+        if not pi_client:
+            return False
+        if not document_id or document_id == "doc-1":
+            return False
+        try:
+            return bool(pi_client.is_retrieval_ready(document_id))
+        except Exception:
+            return True
+
+    async def _retrieve_hybrid_context(
+        self, query: str, document_id: str, intent: str
+    ) -> Tuple[str, List[dict], Dict[str, Any]]:
+        """
+        Unified hybrid retrieval using HybridRetriever.
+        Uses BM25 + semantic embeddings + RRF fusion.
+        """
+        db = SessionLocal()
+        try:
+            package = self.hybrid_retriever.build_context_package(
+                db=db,
+                query=query,
+                document_id=document_id,
+            )
+            context = package.get("context", "")
+            citations = package.get("citations", [])
+            retrieval_meta = package.get("retrieval", {
+                "strategy": "hybrid",
+                "source": "none",
+                "document_id": document_id,
+                "used_rag": False,
+            })
+            return context, citations, retrieval_meta
+        except Exception as e:
+            print(f"[Engine] Hybrid retrieval failed: {e}")
+            return "", [], {
+                "strategy": "hybrid",
+                "source": "error",
+                "document_id": document_id,
+                "used_rag": False,
+                "error": str(e),
+            }
+        finally:
+            db.close()
+
+    async def _pageindex_stream_answer_and_citations(
+        self,
+        messages: List[dict],
+        document_id: str,
+    ) -> AsyncGenerator[dict, None]:
+        """
+        Uses PageIndex indexed documents to stream tokens and capture citations.
+        Emits our standard event format: token/citation.
+        """
+        citations_payload: List[dict] = []
+        answer_full = ""
+        try:
+            stream_iter = pi_client.chat_completions(
+                messages=messages,
+                doc_id=document_id,
+                stream=True,
+                stream_metadata=True,
+                enable_citations=True,
+            )
+            for chunk in stream_iter:
+                # Citations metadata chunk
+                if chunk.get("object") == "chat.completion.citations":
+                    raw = chunk.get("citations", []) or []
+                    citations_payload = []
+                    for ref in raw:
+                        title = ref.get("title") or ref.get("guideline") or "Indexed Document"
+                        text = ref.get("text") or ref.get("content") or ""
+                        citations_payload.append({
+                            "guideline": title,
+                            "section": ref.get("section") or title,
+                            "page_range": ref.get("page_range") or ref.get("pages") or "",
+                            "evidence_strength": ref.get("evidence_strength") or "moderate",
+                            "reasoning": "Retrieved from indexed document",
+                            "content": text,
+                            "text": text,
+                            "snippet": (text[:100] + "...") if len(text) > 100 else text,
+                            "matched_keywords": [],
+                        })
+                    if citations_payload:
+                        yield {"type": "citation", "data": json.dumps(citations_payload)}
+                else:
+                    # Token chunk
+                    content = chunk.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                    if content:
+                        answer_full += content
+                        yield {"type": "token", "data": content}
+        except Exception as e:
+            yield {"type": "error", "data": str(e)}
+
+        yield {"type": "_pageindex_done", "data": json.dumps({"answer": answer_full, "citations": citations_payload})}
 
     # ── Pipeline Components ────────────────────────────────────
 
@@ -172,7 +274,7 @@ class PageIndexEngine:
                     {"role": "system", "content": INTENT_CLASSIFIER_PROMPT},
                     {"role": "user", "content": user_msg}
                 ],
-                model="llama3-8b-8192", # Fast, lightweight model for intent
+                model=GROQ_SMALL_MODEL,
                 response_format={"type": "json_object"},
                 temperature=0.0
             )
@@ -203,17 +305,17 @@ class PageIndexEngine:
         return intent in ["clinical", "follow_up"]
 
     def retrieve_context(self, query: str, document_id: str = "doc-1") -> str:
-        """Retrieve relevant context dynamically."""
-        doc = CLINICAL_CONTEXT.get(document_id, CLINICAL_CONTEXT["doc-1"])
-        query_lower = query.lower()
-        relevant = []
-
-        for key, section in doc["sections"].items():
-            kws = SECTION_KEYWORDS.get(key, [])
-            if any(kw in query_lower for kw in kws):
-                relevant.append(section["content"])
-
-        return "\n\n".join(relevant)
+        """Retrieve relevant context using the unified hybrid retriever."""
+        db = SessionLocal()
+        try:
+            package = self.hybrid_retriever.build_context_package(
+                db=db, query=query, document_id=document_id,
+            )
+            return package.get("context", "")
+        except Exception:
+            return ""
+        finally:
+            db.close()
 
     def _is_mcq_query(self, query: str) -> bool:
         q = query.lower()
@@ -223,6 +325,79 @@ class PageIndexEngine:
             or bool(re.search(r"\b[a-d]\)", q))
             or "all of the following" in q
         )
+
+    def _detect_mcq_type(self, query: str) -> str:
+        q = query.lower()
+        if not self._is_mcq_query(query):
+            return "non-mcq"
+        if "except" in q:
+            return "MCQ-except"
+        if "most likely" in q:
+            return "MCQ-most-likely"
+        if "best next step" in q or "next best step" in q:
+            return "MCQ-best-next-step"
+        return "MCQ-most-likely"
+
+    def _extract_mcq_options(self, query: str) -> List[str]:
+        options = []
+        for line in query.splitlines():
+            s = line.strip()
+            if re.match(r"^([a-eA-E]|\d{1,2})[\)\.\-:]\s+.+", s):
+                options.append(s)
+        return options
+
+    def _normalize_option_checks(self, option_checks: List[dict], mcq_options: List[str]) -> List[dict]:
+        normalized = []
+        seen = set()
+        for row in option_checks or []:
+            option = str(row.get("option", "")).strip()
+            if not option:
+                continue
+            label = str(row.get("label", "uncertain")).lower()
+            if label not in {"true", "false", "uncertain"}:
+                label = "uncertain"
+            normalized.append({
+                "option": option,
+                "label": label,
+                "why": str(row.get("why", "")).strip(),
+            })
+            seen.add(option.lower())
+
+        # Ensure every detected MCQ option has an explicit check row.
+        for opt in mcq_options:
+            if opt.lower() not in seen:
+                normalized.append({
+                    "option": opt,
+                    "label": "uncertain",
+                    "why": "Option was not explicitly validated by the model.",
+                })
+        return normalized
+
+    def _infer_mcq_selected_option(self, mcq_type: str, option_checks: List[dict]) -> Optional[str]:
+        if not option_checks:
+            return None
+        if mcq_type == "MCQ-except":
+            for row in option_checks:
+                if row.get("label") == "false":
+                    return row.get("option")
+            return None
+        # For most-likely / best-next-step, prefer the strongest affirmed option.
+        for row in option_checks:
+            if row.get("label") == "true":
+                return row.get("option")
+        return None
+
+    def _build_mcq_analysis(self, mcq_type: str, mcq_options: List[str], validation: Dict[str, Any]) -> Dict[str, Any]:
+        checks = self._normalize_option_checks(validation.get("option_checks", []), mcq_options)
+        selected = self._infer_mcq_selected_option(mcq_type, checks)
+        return {
+            "detected": True,
+            "mcq_type": mcq_type,
+            "options": mcq_options,
+            "option_checks": checks,
+            "selected_option": selected,
+            "selection_rule": "FALSE option for EXCEPT; TRUE option for most-likely/best-next-step.",
+        }
 
     def _estimate_confidence(self, intent: str, citations: List[dict], answer: str) -> float:
         if intent in ["greeting", "meta"]:
@@ -248,40 +423,109 @@ class PageIndexEngine:
 
         return round(max(0.2, min(base, 0.92)), 2)
 
+    def _score_from_validation(self, validation: Dict[str, Any], citations: List[dict], is_mcq: bool) -> float:
+        band = validation.get("evidence_level", "none")
+        suggested = validation.get("suggested_confidence", 45)
+        if band == "strong":
+            lo, hi = 85, 95
+        elif band == "moderate":
+            lo, hi = 70, 84
+        elif band == "limited":
+            lo, hi = 50, 69
+        else:
+            lo, hi = 30, 49
+
+        confidence_pct = max(lo, min(hi, int(suggested)))
+        if validation.get("contradiction"):
+            confidence_pct = min(confidence_pct, 45)
+        if is_mcq and len(citations) == 0:
+            confidence_pct = min(confidence_pct, 45)
+        return round(confidence_pct / 100.0, 2)
+
+    def _fallback_validation(self, answer: str, citations: List[dict], is_mcq: bool) -> Dict[str, Any]:
+        if len(citations) >= 2:
+            evidence = "strong"
+            suggested = 88
+        elif len(citations) == 1:
+            evidence = "moderate"
+            suggested = 76
+        else:
+            evidence = "none"
+            suggested = 40
+
+        if "cannot verify" in (answer or "").lower():
+            evidence = "none"
+            suggested = 40
+
+        return {
+            "contradiction": False,
+            "evidence_level": evidence,
+            "suggested_confidence": suggested,
+            "rationale": "Fallback validation based on available retrieved evidence.",
+            "option_checks": [],
+        }
+
+    def _validate_answer(
+        self,
+        query: str,
+        answer: str,
+        context: str,
+        citations: List[dict],
+        mcq_options: List[str],
+    ) -> Dict[str, Any]:
+        if not self.groq_client:
+            return self._fallback_validation(answer, citations, bool(mcq_options))
+
+        user_payload = {
+            "query": query,
+            "answer": answer,
+            "retrieved_context": context[:3500],
+            "citations": citations[:4],
+            "mcq_options": mcq_options,
+        }
+        try:
+            completion = self.groq_client.chat.completions.create(
+                messages=[
+                    {"role": "system", "content": VALIDATION_PROMPT},
+                    {"role": "user", "content": json.dumps(user_payload)},
+                ],
+                model=GROQ_SMALL_MODEL,
+                response_format={"type": "json_object"},
+                temperature=0.0,
+            )
+            data = json.loads(completion.choices[0].message.content)
+            return {
+                "contradiction": bool(data.get("contradiction", False)),
+                "evidence_level": data.get("evidence_level", "none"),
+                "suggested_confidence": int(data.get("suggested_confidence", 45)),
+                "rationale": data.get("rationale", "Validation complete."),
+                "option_checks": data.get("option_checks", []),
+            }
+        except Exception:
+            return self._fallback_validation(answer, citations, bool(mcq_options))
+
     def _extract_citations(self, query: str, document_id: str) -> List[dict]:
-        doc = CLINICAL_CONTEXT.get(document_id, CLINICAL_CONTEXT["doc-1"])
-        query_lower = query.lower()
-        citations = []
-        for key, section in doc["sections"].items():
-            kws = SECTION_KEYWORDS.get(key, [])
-            matched_kws = [kw for kw in kws if kw in query_lower]
-            if matched_kws:
-                # Force-include the content text with multiple aliases for robustness
-                content_text = section.get("content", "Text content not found in context dictionary.")
-                citations.append({
-                    "guideline":        "PGIMER Orthopaedic Guidelines 2025",
-                    "section":          section.get("section_title", "Reference"),
-                    "page_range":       section.get("pages", ""),
-                    "evidence_strength": section.get("evidence_strength", "moderate"),
-                    "reasoning":        f"Query contains '{matched_kws[0]}'",
-                    "content":          content_text,
-                    "text":             content_text,  # alias
-                    "snippet":          content_text[:100] + "...", # snippet alias
-                    "matched_keywords": matched_kws
-                })
-        
-        print(f"DEBUG [Engine]: Extracted {len(citations)} citations for query '{query}'. First content length: {len(citations[0]['content']) if citations else 0}")
-        return citations
+        """Extract citations using the unified hybrid retriever."""
+        db = SessionLocal()
+        try:
+            package = self.hybrid_retriever.build_context_package(
+                db=db, query=query, document_id=document_id,
+            )
+            return package.get("citations", [])
+        except Exception:
+            return []
+        finally:
+            db.close()
 
     def build_prompt(self, intent: str, context: str, role: UserRole) -> str:
         if intent == "greeting":
             return PROMPT_GREETING
         elif intent == "meta":
-            return PROMPT_META
+            return STRUCTURED_REASONING_POLICY + "\n\n" + PROMPT_META
         elif intent == "follow_up":
-            return PROMPT_FOLLOW_UP.format(context=context)
+            return STRUCTURED_REASONING_POLICY + "\n\n" + PROMPT_FOLLOW_UP.format(context=context)
         else:
-            return PROMPT_CLINICAL.format(role=role.value, context=context)
+            return STRUCTURED_REASONING_POLICY + "\n\n" + PROMPT_CLINICAL.format(role=role.value, context=context)
 
     # ── Master Orchestration ───────────────────────────────────
 
@@ -289,7 +533,7 @@ class PageIndexEngine:
         self,
         query: str,
         role: UserRole,
-        document_id: str = "doc-1",
+        document_id: Optional[str] = None,
         history: List[dict] = None
     ) -> AsyncGenerator[dict, None]:
         """
@@ -304,14 +548,21 @@ class PageIndexEngine:
         yield {"type": "intent", "data": intent}
         
         # 2. Gate RAG
-        use_rag = self.should_use_rag(intent)
+        # MCQs must always attempt retrieval/validation; never answer from pure generalization.
+        is_mcq = self._is_mcq_query(query)
+        use_rag = self.should_use_rag(intent) or is_mcq
         context = ""
         citations = []
         trace = []
+        retrieval_meta: Dict[str, Any] = {
+            "strategy": "none",
+            "source": "none",
+            "used_rag": False,
+            "document_id": document_id,
+        }
         
         if use_rag:
-            context = self.retrieve_context(query, document_id)
-            citations = self._extract_citations(query, document_id)
+            context, citations, retrieval_meta = await self._retrieve_hybrid_context(query, document_id, intent)
             
             # Emit Citations
             if citations:
@@ -319,12 +570,22 @@ class PageIndexEngine:
 
             # If clinical, we do thinking and explicit trace steps
             if intent == "clinical":
-                # Professional clinical trace steps
-                trace = [
-                    TraceStep(step=1, action="Clinical Intent Analysis", detail=f"Contextualizing query for {role.value} perspective"),
-                    TraceStep(step=2, action="PageIndex Tree Navigation", detail="Retrieving institutional orthopaedic protocols"),
-                    TraceStep(step=3, action="Evidence Mapping", detail=f"Extracted {len(citations)} relevant guideline segments"),
-                ]
+                # DNA: Dynamic Navigation Arch
+                trace = []
+                step_val = 1
+                
+                trace.append(TraceStep(step=step_val, action="Clinical Intent Analysis", detail=f"Contextualizing query for {role.value} perspective"))
+                step_val += 1
+                
+                if retrieval_meta.get("strategy") in ("global_vectorless", "librarian_institutional_fallback"):
+                    trace.append(TraceStep(step=step_val, action="AI Librarian Discovery", detail=retrieval_meta.get("selection_reasoning", "Scanning entire digital library")))
+                    step_val += 1
+                
+                trace.append(TraceStep(step=step_val, action="PageIndex Tree Navigation", detail="Retrieving institutional orthopaedic protocols")),
+                step_val += 1
+                
+                trace.append(TraceStep(step=step_val, action="Evidence Mapping", detail=f"Extracted {len(citations)} relevant guideline segments"))
+                
                 for t in trace:
                     trace_data_str = json.dumps({"action": t.action, "detail": t.detail})
                     yield {"type": "trace", "step": t.step, "data": trace_data_str}
@@ -358,14 +619,18 @@ class PageIndexEngine:
 
         # 3. Build Prompt & Format History
         system_prompt = self.build_prompt(intent, context, role)
-        is_mcq = self._is_mcq_query(query)
+        mcq_type = self._detect_mcq_type(query)
+        mcq_options = self._extract_mcq_options(query)
         if is_mcq:
             system_prompt += (
                 "\n\nMCQ guardrail:\n"
                 "- This appears to be a multiple-choice question.\n"
+                f"- MCQ type detected: {mcq_type}.\n"
                 "- If options cannot be validated from retrieved context, do NOT pick a definitive option.\n"
                 "- State that available guideline context is insufficient and request the exact source/chapter."
             )
+            if mcq_options:
+                system_prompt += "\n- Verify each option explicitly before final answer."
         
         messages = [{"role": "system", "content": system_prompt}]
         
@@ -387,7 +652,11 @@ class PageIndexEngine:
             )
             for chunk in answer_full.split(" "):
                 yield {"type": "token", "data": chunk + " "}
-            confidence = self._estimate_confidence(intent, citations, answer_full)
+            validation = self._fallback_validation(answer_full, citations, is_mcq)
+            confidence = self._score_from_validation(validation, citations, is_mcq)
+            mcq_analysis = self._build_mcq_analysis(mcq_type, mcq_options, validation) if is_mcq else None
+            if mcq_analysis:
+                yield {"type": "mcq_analysis", "data": json.dumps(mcq_analysis)}
             yield {"type": "confidence", "data": str(confidence)}
             final_payload = {
                 "answer": answer_full,
@@ -395,12 +664,69 @@ class PageIndexEngine:
                 "confidence": confidence,
                 "trace": [t.model_dump() for t in trace],
                 "model": GROQ_MODEL if self.groq_client else "mock",
-                "intent": intent
+                "intent": intent,
+                "validation": validation,
+                "question_type": mcq_type if is_mcq else "clinical",
+                "mcq_analysis": mcq_analysis,
+                "retrieval": retrieval_meta,
             }
             yield {"type": "final_payload", "data": final_payload}
             yield {"type": "done", "data": "[DONE]"}
             return
         
+        # If a real indexed document is selected, use PageIndex for retrieval+generation.
+        # This makes the chat truly RAG-backed on your indexed PDFs.
+        if USE_PAGEINDEX_CLOUD and self._can_use_pageindex(document_id):
+            # Stream via PageIndex, then validate+score like usual.
+            pi_messages = messages
+            pi_answer = ""
+            pi_citations: List[dict] = []
+            async for ev in self._pageindex_stream_answer_and_citations(pi_messages, document_id):
+                if ev.get("type") == "_pageindex_done":
+                    payload = json.loads(ev.get("data", "{}") or "{}")
+                    pi_answer = payload.get("answer", "") or ""
+                    pi_citations = payload.get("citations", []) or []
+                    break
+                yield ev
+
+            # Build context from citations text (for validator)
+            context_from_cits = "\n\n".join([(c.get("content") or c.get("text") or "") for c in (pi_citations or [])])[:5000]
+            validation = self._validate_answer(query, pi_answer, context_from_cits, pi_citations, mcq_options)
+            mcq_analysis = self._build_mcq_analysis(mcq_type, mcq_options, validation) if is_mcq else None
+            if mcq_analysis:
+                yield {"type": "mcq_analysis", "data": json.dumps(mcq_analysis)}
+            confidence = self._score_from_validation(validation, pi_citations, is_mcq)
+            trace.append(
+                TraceStep(
+                    step=len(trace) + 1,
+                    action="Guideline Consistency Validation",
+                    detail=validation.get("rationale", "Validated answer against retrieved evidence."),
+                )
+            )
+            yield {"type": "confidence", "data": str(confidence)}
+
+            final_payload = {
+                "answer": pi_answer,
+                "citations": pi_citations,
+                "confidence": confidence,
+                "trace": [t.model_dump() for t in trace],
+                "model": "pageindex",
+                "intent": intent,
+                "validation": validation,
+                "question_type": mcq_type if is_mcq else "clinical",
+                "mcq_analysis": mcq_analysis,
+                "retrieval": {
+                    "strategy": "pageindex_cloud",
+                    "source": "pageindex",
+                    "used_rag": bool(pi_citations),
+                    "document_id": document_id,
+                    "citations_count": len(pi_citations),
+                },
+            }
+            yield {"type": "final_payload", "data": final_payload}
+            yield {"type": "done", "data": "[DONE]"}
+            return
+
         if self.groq_client:
             try:
                 stream = self.groq_client.chat.completions.create(
@@ -422,8 +748,19 @@ class PageIndexEngine:
             for word in answer_full.split():
                 yield {"type": "token", "data": " " + word}
 
-        # 5. Emit Post-Gen Details
-        confidence = self._estimate_confidence(intent, citations, answer_full)
+        # 5. Validate answer against retrieved evidence, then score confidence
+        validation = self._validate_answer(query, answer_full, context, citations, mcq_options)
+        mcq_analysis = self._build_mcq_analysis(mcq_type, mcq_options, validation) if is_mcq else None
+        if mcq_analysis:
+            yield {"type": "mcq_analysis", "data": json.dumps(mcq_analysis)}
+        confidence = self._score_from_validation(validation, citations, is_mcq)
+        trace.append(
+            TraceStep(
+                step=len(trace) + 1,
+                action="Guideline Consistency Validation",
+                detail=validation.get("rationale", "Validated answer against retrieved evidence."),
+            )
+        )
         yield {"type": "confidence", "data": str(confidence)}
         
         # 6. Yield Final Package for DB Saving in `chat.py`
@@ -433,7 +770,11 @@ class PageIndexEngine:
             "confidence": confidence,
             "trace": [t.model_dump() for t in trace],
             "model": GROQ_MODEL if self.groq_client else "mock",
-            "intent": intent
+            "intent": intent,
+            "validation": validation,
+            "question_type": mcq_type if is_mcq else "clinical",
+            "mcq_analysis": mcq_analysis,
+            "retrieval": retrieval_meta,
         }
         yield {"type": "final_payload", "data": final_payload}
         yield {"type": "done", "data": "[DONE]"}

@@ -21,10 +21,10 @@ from models.db_models import User, ChatSession, ChatMessage, AuditLog
 from auth.permissions import get_current_user, get_optional_user
 from chat.session_manager import session_manager
 from chat.conversation_manager import conversation_manager
-from services.pageindex_engine import PageIndexEngine
+from services.context_chat_engine import ContextChatEngine
 
 router = APIRouter()
-engine = PageIndexEngine()
+engine = ContextChatEngine()
 
 
 # ── Session Management ─────────────────────────────────────
@@ -209,10 +209,13 @@ async def send_message(
         try:
             # Consume the unified generator
             async for event in engine.generate_response_stream(
+                db=db,
                 query=request.message,
                 role=role,
                 document_id=request.document_id,
-                history=history
+                history=history,
+                max_context_tokens=request.max_context_tokens,
+                max_context_chunks=request.max_context_chunks,
             ):
                 if event["type"] == "final_payload":
                     data = event["data"]
@@ -225,11 +228,14 @@ async def send_message(
                         citations=data.get("citations", []),
                         confidence_score=data.get("confidence", 0.0),
                         reasoning_trace=data.get("trace", []),
-                        model_used=data.get("model", "")
+                        model_used=data.get("model", ""),
+                        metadata_extra={"retrieval": data.get("retrieval", {})},
                     )
                     
                     # Yield message ID so frontend can tie feedback to it
                     yield f"data: {json.dumps({'type': 'message_id', 'data': str(msg.id)})}\n\n"
+                    # Yield retrieval diagnostics so UI can render accurate grounding state.
+                    yield f"data: {json.dumps({'type': 'retrieval_meta', 'data': data.get('retrieval', {})})}\n\n"
                     
                     # Log to audit table
                     audit = AuditLog(
@@ -270,15 +276,21 @@ async def send_message(
 
 
 @router.post("/query", response_model=QueryResponse)
-async def query_documents(request: QueryRequest):
-    """Submit a clinical query (legacy endpoint, no auth)."""
+async def query_documents(
+    request: QueryRequest,
+    user: User = Depends(get_current_user),
+):
+    """Submit a clinical query (legacy endpoint, auth required)."""
     try:
         final_payload = None
         async for event in engine.generate_response_stream(
+            db=None,
             query=request.query,
-            role=request.role,
+            role=UserRole.resident,
             document_id=request.document_id,
-            history=[]
+            history=[],
+            max_context_tokens=request.max_context_tokens,
+            max_context_chunks=request.max_context_chunks,
         ):
             if event["type"] == "final_payload":
                 final_payload = event["data"]
@@ -292,7 +304,7 @@ async def query_documents(request: QueryRequest):
             confidence=final_payload.get("confidence", 0.0),
             citations=final_payload.get("citations", []),
             reasoning_trace=[TraceStep(**t) for t in final_payload.get("trace", [])],
-            role=request.role,
+            role=UserRole.resident,
             model=final_payload.get("model", "")
         )
     except Exception as e:
@@ -300,16 +312,22 @@ async def query_documents(request: QueryRequest):
 
 
 @router.post("/query/stream")
-async def stream_query(request: QueryRequest):
-    """Stream a clinical query response (legacy endpoint, no auth)."""
+async def stream_query(
+    request: QueryRequest,
+    user: User = Depends(get_current_user),
+):
+    """Stream a clinical query response (legacy endpoint, auth required)."""
 
     async def event_generator():
         try:
             async for event in engine.generate_response_stream(
+                db=None,
                 query=request.query,
-                role=request.role,
+                role=UserRole.resident,
                 document_id=request.document_id,
-                history=[]
+                history=[],
+                max_context_tokens=request.max_context_tokens,
+                max_context_chunks=request.max_context_chunks,
             ):
                 if event["type"] == "final_payload":
                     continue  # We don't need to yield this for basic streaming

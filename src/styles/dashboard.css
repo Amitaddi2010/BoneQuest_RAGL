@@ -1,5 +1,5 @@
 /* ============================================================
-   BoneQuest v2 — Dashboard Styles (Premium SaaS)
+   BoneQuest v2.1 — Dashboard Styles (3-Signal Pipeline)
    ============================================================ */
 
 .dashboard-layout {
@@ -120,6 +120,11 @@
 .dashboard-header {
     margin-bottom: var(--space-10);
     position: relative;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: var(--space-4);
+    flex-wrap: wrap;
 }
 
 .dashboard-header h1 {
@@ -136,6 +141,12 @@
     color: var(--text-dim);
     font-size: var(--text-lg);
     max-width: 600px;
+}
+
+.dashboard-header-badges {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
 }
 
 /* --- Stats Cards (Glassmorphism) --- */
@@ -300,6 +311,12 @@
     display: flex;
     align-items: center;
     gap: var(--space-2);
+}
+
+.doc-signals-row {
+    display: flex;
+    gap: 4px;
+    margin-top: var(--space-3);
 }
 
 /* --- Upload Zone Dashboard Premium --- */

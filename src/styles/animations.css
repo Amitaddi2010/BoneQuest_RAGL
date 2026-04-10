@@ -222,6 +222,81 @@
     to { opacity: 1; transform: translateY(0); }
 }
 
+/* --- Pipeline Pulse (live status indicators) --- */
+@keyframes pulse-pipeline {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.6; transform: scale(1.15); }
+}
+
+.pulse-pipeline {
+    animation: pulse-pipeline 2s ease-in-out infinite;
+}
+
+/* --- Breath Glow (active pipeline badge) --- */
+@keyframes breath-glow {
+    0%, 100% { box-shadow: 0 0 4px currentColor; }
+    50% { box-shadow: 0 0 12px currentColor, 0 0 24px currentColor; }
+}
+
+.breath-glow {
+    animation: breath-glow 3s ease-in-out infinite;
+}
+
+/* --- Shimmer Gradient (premium loading) --- */
+@keyframes shimmer-gradient {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+}
+
+.shimmer-gradient {
+    background: linear-gradient(90deg,
+        rgba(129, 74, 200, 0.05) 25%,
+        rgba(129, 74, 200, 0.12) 50%,
+        rgba(129, 74, 200, 0.05) 75%);
+    background-size: 200% 100%;
+    animation: shimmer-gradient 2s ease-in-out infinite;
+}
+
+/* --- Pipeline Flow Arrow Animation --- */
+@keyframes pipeline-flow {
+    0% { opacity: 0.3; transform: translateX(-4px); }
+    50% { opacity: 1; transform: translateX(2px); }
+    100% { opacity: 0.3; transform: translateX(-4px); }
+}
+
+.pipeline-arrow {
+    display: inline-block;
+    animation: pipeline-flow 1.5s ease-in-out infinite;
+    color: var(--accent-light);
+}
+
+/* --- Scale In (for modal/overlay entrance) --- */
+@keyframes scale-in {
+    from { opacity: 0; transform: scale(0.9) translateY(10px); }
+    to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.animate-scale-in {
+    animation: scale-in 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* --- Live Dot Pulse --- */
+@keyframes live-dot {
+    0%, 100% { box-shadow: 0 0 0 0 currentColor; }
+    50% { box-shadow: 0 0 0 4px transparent; }
+}
+
+.pulse-live::before {
+    content: '';
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--success);
+    margin-right: 6px;
+    animation: live-dot 2s ease-in-out infinite;
+}
+
 /* --- Reduce motion --- */
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {

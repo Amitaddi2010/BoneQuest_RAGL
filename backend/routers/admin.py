@@ -3,15 +3,21 @@
 # ============================================================
 
 from datetime import datetime, timedelta
+import os
+import shutil
+import uuid
+from pathlib import Path
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
-from typing import Optional
+from typing import Optional, List, Dict, Any
 
 from database import get_db
-from models.db_models import User, ChatSession, ChatMessage, AuditLog, ImageAnalysis
+from models.db_models import User, ChatSession, ChatMessage, AuditLog, ImageAnalysis, Document
 from models.schemas import AnalyticsResponse, AuditLogEntry, AuditLogListResponse, UserResponse
 from auth.permissions import require_admin
+from evals.run_local_rag_eval import run_eval
+from services.local_retriever import LocalRetriever
 
 router = APIRouter()
 
@@ -233,4 +239,115 @@ async def get_qa_feed(
         "total": total,
         "page": page,
         "per_page": per_page
+    }
+
+
+@router.post("/eval/local-rag")
+async def run_local_rag_eval(
+    eval_set_path: Optional[str] = None,
+    user: User = Depends(require_admin),
+):
+    """Run local hybrid RAG eval set and return metrics. Admin only."""
+    base_dir = os.path.dirname(os.path.dirname(__file__))
+    default_path = os.path.join(base_dir, "evals", "local_rag_eval_set.json")
+    path = eval_set_path or default_path
+    if not os.path.exists(path):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"Eval set not found: {path}")
+    return await run_eval(path)
+
+
+@router.post("/local-docs/import")
+async def import_local_pdfs(
+    folder_path: str,
+    doc_type: str = "general",
+    recursive: bool = True,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """
+    Import a local folder of PDFs into backend data/uploads and register them in DB.
+    This is how you test local hybrid RAG on real PDFs (no PageIndex cloud).
+    Admin only.
+    """
+    src_dir = Path(folder_path).expanduser()
+    if not src_dir.exists() or not src_dir.is_dir():
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail=f"Folder not found: {folder_path}")
+
+    backend_dir = Path(__file__).resolve().parent.parent
+    upload_dir = backend_dir / "data" / "uploads"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+
+    pattern = "**/*.pdf" if recursive else "*.pdf"
+    pdfs = sorted(src_dir.glob(pattern))
+    if not pdfs:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail=f"No PDFs found in: {folder_path}")
+
+    results: List[Dict[str, Any]] = []
+    for pdf_path in pdfs:
+        internal_id = uuid.uuid4().hex[:8]
+        dest_path = upload_dir / f"{internal_id}.pdf"
+        title = pdf_path.stem.replace("_", " ").replace("-", " ").strip().title()
+
+        try:
+            shutil.copyfile(str(pdf_path), str(dest_path))
+            row = Document(
+                doc_id=internal_id,
+                internal_id=internal_id,
+                name=title or internal_id,
+                status="indexed",
+                doc_type=doc_type if doc_type in ("general", "guideline") else "general",
+                uploaded_by=user.id,
+            )
+            db.add(row)
+            db.commit()
+            results.append(
+                {
+                    "internal_id": internal_id,
+                    "title": title,
+                    "filename": pdf_path.name,
+                    "status": "imported",
+                }
+            )
+        except Exception as e:
+            db.rollback()
+            results.append(
+                {
+                    "filename": pdf_path.name,
+                    "status": "error",
+                    "error": str(e),
+                }
+            )
+
+    imported = sum(1 for r in results if r.get("status") == "imported")
+    return {"total_found": len(pdfs), "imported": imported, "results": results[:50]}
+
+
+@router.get("/local-docs/test-retrieval")
+async def test_local_retrieval(
+    document_id: str,
+    query: str,
+    top_k: int = Query(default=4, ge=1, le=10),
+    clear_cache: bool = False,
+    user: User = Depends(require_admin),
+):
+    """
+    Retrieval-only test endpoint: returns the exact top chunks/citations from local PDFs.
+    Admin only.
+    """
+    backend_dir = Path(__file__).resolve().parent.parent
+    upload_dir = backend_dir / "data" / "uploads"
+    retriever = LocalRetriever(uploads_dir=str(upload_dir))
+    if clear_cache:
+        retriever.clear_cache(document_id=document_id)
+    has_doc = retriever.has_local_doc(document_id)
+    citations = retriever.retrieve(query=query, document_id=document_id, top_k=top_k) if has_doc else []
+    return {
+        "document_id": document_id,
+        "has_local_doc": has_doc,
+        "top_k": top_k,
+        "citations_count": len(citations),
+        "citations": citations,
     }

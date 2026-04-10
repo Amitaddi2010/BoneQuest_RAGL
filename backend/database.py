@@ -48,6 +48,9 @@ def ensure_sqlite_migrations() -> None:
         ("chat_messages", "metadata_extra", "TEXT"),
         ("chat_messages", "reasoning_trace", "TEXT"),
         ("chat_messages", "citations", "TEXT"),
+        ("documents", "internal_id", "TEXT"),
+        ("document_chunks", "embedding", "TEXT"),
+        ("document_chunks", "embedding_model", "TEXT"),
     ]
     with engine.begin() as conn:
         for table, col, ddl in migrations:
@@ -58,6 +61,16 @@ def ensure_sqlite_migrations() -> None:
                 conn.execute(text(f'ALTER TABLE "{table}" ADD COLUMN {col} {ddl}'))
             except Exception:
                 continue
+        # Backfill internal_id = doc_id for legacy rows where internal_id is NULL
+        try:
+            conn.execute(text('UPDATE documents SET internal_id = doc_id WHERE internal_id IS NULL'))
+        except Exception:
+            pass
+        # Normalise legacy 'queued' status to 'indexed' (file is on disk, ready to use)
+        try:
+            conn.execute(text("UPDATE documents SET status = 'indexed' WHERE status = 'queued'"))
+        except Exception:
+            pass
 
 
 # Dependency

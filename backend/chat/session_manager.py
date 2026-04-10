@@ -104,6 +104,7 @@ class SessionManager:
         reasoning_trace: list = None,
         tokens_used: int = None,
         model_used: str = None,
+        metadata_extra: dict = None,
     ) -> ChatMessage:
         """Add a message to a session."""
         message = ChatMessage(
@@ -115,6 +116,7 @@ class SessionManager:
             reasoning_trace=reasoning_trace,
             tokens_used=tokens_used,
             model_used=model_used,
+            metadata_extra=metadata_extra,
         )
         db.add(message)
 

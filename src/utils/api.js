@@ -4,12 +4,22 @@
 
 import { auth } from './auth.js';
 
-const BASE_URL = import.meta.env.VITE_API_URL 
-    ? (import.meta.env.VITE_API_URL + '/api')
-    : '/api';
-const AUTH_URL = import.meta.env.VITE_API_URL 
-    ? (import.meta.env.VITE_API_URL + '/auth')
-    : '/auth';
+function normalizeBase(base) {
+    if (!base) return '';
+    return String(base).trim().replace(/\/+$/, '');
+}
+
+function joinPath(base, suffix) {
+    const b = normalizeBase(base);
+    if (!b) return suffix;
+    // If caller already provided the suffix (e.g. VITE_API_URL ends with /api), don't double-append.
+    if (b.toLowerCase().endsWith(suffix.toLowerCase())) return b;
+    return `${b}${suffix}`;
+}
+
+const RAW_BASE = normalizeBase(import.meta.env.VITE_API_URL);
+const BASE_URL = RAW_BASE ? joinPath(RAW_BASE, '/api') : '/api';
+const AUTH_URL = RAW_BASE ? joinPath(RAW_BASE, '/auth') : '/auth';
 
 class ApiClient {
     async request(endpoint, options = {}, baseUrl = BASE_URL) {
@@ -38,7 +48,7 @@ class ApiClient {
 
             return await response.json();
         } catch (err) {
-            console.error(`API Error [${endpoint}]:`, err);
+            console.error(`API Error [${url}]:`, err);
             throw err;
         }
     }
@@ -176,6 +186,7 @@ class ApiClient {
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
+        let parseErrorCount = 0;
 
         const parseSseEvent = (chunk) => {
             const dataLines = [];
@@ -202,7 +213,15 @@ class ApiClient {
                 if (data === '[DONE]') return;
                 try {
                     yield JSON.parse(data);
-                } catch { }
+                } catch {
+                    parseErrorCount += 1;
+                    if (parseErrorCount <= 2 || parseErrorCount % 5 === 0) {
+                        yield {
+                            type: 'stream_warning',
+                            data: `Stream parse issue detected (${parseErrorCount}). Response may be partially degraded.`,
+                        };
+                    }
+                }
             }
         }
 
@@ -210,7 +229,12 @@ class ApiClient {
         if (tail && tail !== '[DONE]') {
             try {
                 yield JSON.parse(tail);
-            } catch { }
+            } catch {
+                yield {
+                    type: 'stream_warning',
+                    data: 'Final stream chunk could not be parsed. You can retry if output looks incomplete.',
+                };
+            }
         }
     }
 

@@ -35,6 +35,7 @@ export function createNavbar(page = 'landing') {
         <div class="nav-container">
             <a href="#/" class="logo">
                 <span class="text-gradient">BoneQuest</span>
+                ${!isLanding ? '<span class="version-badge">v2.1</span>' : ''}
             </a>
             <div class="nav-links">
                 ${isLanding ? `

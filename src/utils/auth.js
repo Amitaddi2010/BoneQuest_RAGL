@@ -3,6 +3,17 @@
 // ============================================================
 
 const AUTH_KEY = 'bonequest_auth';
+const RAW_BASE = (import.meta.env.VITE_API_URL || '').toString().trim().replace(/\/+$/, '');
+const AUTH_BASE = RAW_BASE
+    ? (RAW_BASE.toLowerCase().endsWith('/auth') ? RAW_BASE : `${RAW_BASE}/auth`)
+    : '/auth';
+
+function _jwtExpiry(token) {
+    try {
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        return payload.exp ? payload.exp * 1000 : null; // ms
+    } catch { return null; }
+}
 
 class AuthManager {
     constructor() {
@@ -45,6 +56,33 @@ class AuthManager {
         return !!this._token && !!this._user;
     }
 
+    isTokenExpired() {
+        if (!this._token) return true;
+        const exp = _jwtExpiry(this._token);
+        if (!exp) return false;
+        return Date.now() >= exp - 30_000; // 30s buffer
+    }
+
+    async ensureFreshToken() {
+        if (!this.isTokenExpired()) return true;
+        if (!this._refreshToken) { this.logout(); return false; }
+        try {
+            const res = await fetch(`${AUTH_BASE}/refresh-token`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ refresh_token: this._refreshToken }),
+            });
+            if (!res.ok) { this.logout(); return false; }
+            const data = await res.json();
+            this._token = data.access_token;
+            this._persist();
+            return true;
+        } catch {
+            this.logout();
+            return false;
+        }
+    }
+
     get user() {
         return this._user;
     }
@@ -72,7 +110,7 @@ class AuthManager {
     logout() {
         // Try server logout
         if (this._token) {
-            fetch('/auth/logout', {
+            fetch(`${AUTH_BASE}/logout`, {
                 method: 'POST',
                 headers: { 'Authorization': `Bearer ${this._token}` }
             }).catch(() => { });

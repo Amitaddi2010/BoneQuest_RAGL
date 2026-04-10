@@ -1,0 +1,42 @@
+[
+  {
+    "id": "mcq_pavlik_except",
+    "query": "All of the following are complications of Pavlik Harness treatment for developmental dysplasia of the hip, EXCEPT: 1) Worsening acetabular dysplasia 2) Sciatic nerve palsy 3) Femoral nerve palsy 4) Osteonecrosis of femoral head",
+    "document_id": "doc-1",
+    "expected_keywords_any": ["pavlik", "developmental dysplasia", "hip"],
+    "expected_answer_contains_any": ["femoral nerve palsy", "option 3"],
+    "is_mcq": true
+  },
+  {
+    "id": "fracture_open_management",
+    "query": "What is the immediate management priority for open fractures?",
+    "document_id": "doc-1",
+    "expected_keywords_any": ["open fractures", "debridement", "antibiotics"],
+    "expected_answer_contains_any": ["debridement", "iv antibiotics", "gustilo"],
+    "is_mcq": false
+  },
+  {
+    "id": "dm_periop_target",
+    "query": "In orthopaedic surgery patients with diabetes, what perioperative glucose target is recommended?",
+    "document_id": "doc-1",
+    "expected_keywords_any": ["diabetes", "glucose", "perioperative"],
+    "expected_answer_contains_any": ["140-180", "mg/dl"],
+    "is_mcq": false
+  },
+  {
+    "id": "tha_compare_strict",
+    "query": "Compare anterolateral vs medial approach for total hip arthroplasty.",
+    "document_id": "global",
+    "expected_keywords_any": ["total hip arthroplasty", "approach"],
+    "expected_answer_contains_any": ["cannot provide a direct preference", "indirect", "no direct comparative evidence"],
+    "is_mcq": false
+  },
+  {
+    "id": "unknown_query_safe_refusal",
+    "query": "Give exact antibiotic duration protocol for rare synthetic implant profile XYZ-41.",
+    "document_id": "global",
+    "expected_keywords_any": [],
+    "expected_answer_contains_any": ["cannot provide a clinical recommendation", "insufficient evidence", "no strong supporting evidence"],
+    "is_mcq": false
+  }
+]

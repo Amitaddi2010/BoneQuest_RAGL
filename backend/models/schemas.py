@@ -103,9 +103,10 @@ class DocumentListResponse(BaseModel):
 # --- Query / Chat Schemas ---
 class QueryRequest(BaseModel):
     query: str = Field(..., min_length=1, max_length=2000)
-    role: UserRole = UserRole.resident
-    document_id: str = "doc-1"
+    document_id: Optional[str] = None
     num_hops: int = Field(default=3, ge=1, le=5)
+    max_context_tokens: Optional[int] = Field(default=None, ge=500, le=12000)
+    max_context_chunks: Optional[int] = Field(default=None, ge=1, le=20)
 
 
 class TraceStep(BaseModel):
@@ -117,8 +118,16 @@ class TraceStep(BaseModel):
 class Citation(BaseModel):
     guideline_id: Optional[str] = None
     guideline_name: Optional[str] = None
+    guideline: Optional[str] = None
+    section: Optional[str] = None
     page_range: Optional[str] = None
-    evidence_strength: EvidenceStrength = EvidenceStrength.moderate
+    evidence_strength: Optional[str] = EvidenceStrength.moderate.value
+    reasoning: Optional[str] = None
+    content: Optional[str] = None
+    snippet: Optional[str] = None
+    score: Optional[float] = None
+    overlap_ratio: Optional[float] = None
+    match_type: Optional[str] = None
     text: Optional[str] = None
 
 
@@ -126,7 +135,7 @@ class QueryResponse(BaseModel):
     id: str
     answer: str
     confidence: float = Field(ge=0, le=1)
-    citations: List[Any] = []
+    citations: List[Citation] = []
     reasoning_trace: List[TraceStep] = []
     role: UserRole
     model: str = "groq/llama-3.3-70b-versatile"
@@ -160,8 +169,10 @@ class ChatMessageRequest(BaseModel):
     session_id: str
     message: str = Field(..., min_length=1, max_length=4000)
     role: UserRole = UserRole.resident
-    document_id: str = "doc-1"
+    document_id: Optional[str] = None
     image_url: Optional[str] = None
+    max_context_tokens: Optional[int] = Field(default=None, ge=500, le=12000)
+    max_context_chunks: Optional[int] = Field(default=None, ge=1, le=20)
 
 
 class ChatMessageResponse(BaseModel):
@@ -169,7 +180,7 @@ class ChatMessageResponse(BaseModel):
     session_id: str
     role: str
     content: str
-    citations: Optional[List[Any]] = None
+    citations: Optional[List[Citation]] = None
     confidence_score: Optional[float] = None
     reasoning_trace: Optional[List[dict]] = None
     tokens_used: Optional[int] = None
@@ -220,6 +231,8 @@ class AnalyticsResponse(BaseModel):
     queries_by_day: List[dict] = []
     system_uptime: float = 99.9
     average_response_time_ms: float = 0.0
+    total_validated: int = 0
+    total_flagged: int = 0
 
 
 class AuditLogEntry(BaseModel):

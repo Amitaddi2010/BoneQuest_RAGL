@@ -5,8 +5,9 @@
 import { auth } from './auth.js';
 
 export class Router {
-    constructor(routes) {
+    constructor(routes, fallback = null) {
         this.routes = routes;
+        this.fallback = fallback;
         this.currentPage = null;
 
         window.addEventListener('hashchange', () => this.resolve());
@@ -15,9 +16,22 @@ export class Router {
 
     resolve() {
         const hash = window.location.hash.slice(1) || '/';
-        const route = this.routes.find(r => r.path === hash) || this.routes.find(r => r.path === '/');
+        let route = this.routes.find(r => r.path === hash);
 
-        if (!route) return;
+        if (!route && hash === '/') {
+            route = this.routes[0]; // default to first route
+        }
+
+        if (!route) {
+            // 404 fallback
+            if (this.fallback) {
+                this.currentPage = null;
+                const container = document.getElementById('page-content');
+                container.innerHTML = '';
+                this.fallback(container);
+            }
+            return;
+        }
 
         // Auth guard
         if (route.requiresAuth && !auth.isAuthenticated) {

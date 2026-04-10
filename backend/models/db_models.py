@@ -108,10 +108,60 @@ class Document(Base):
     __tablename__ = "documents"
 
     id = Column(Integer, primary_key=True, index=True)
-    doc_id = Column(String, unique=True, index=True)  # PageIndex cloud doc ID
+    doc_id = Column(String, unique=True, index=True)  # PageIndex cloud doc ID (may change on reindex)
+    internal_id = Column(String, unique=True, index=True, nullable=True)  # stable local file ID
     name = Column(String, index=True)
     description = Column(String, nullable=True)
     status = Column(String, default="queued")
     doc_type = Column(String(50), default="general")  # 'general' (books/case studies) or 'guideline'
     uploaded_by = Column(String, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class DocumentChunk(Base):
+    __tablename__ = "document_chunks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    document_id = Column(Integer, ForeignKey("documents.id"), nullable=False, index=True)
+    chunk_index = Column(Integer, nullable=False)
+    source_type = Column(String(20), default="txt")
+    section = Column(String(500), nullable=True)
+    page_label = Column(String(100), nullable=True)
+    content = Column(Text, nullable=False)
+    token_count = Column(Integer, default=0)
+    embedding = Column(JSON, nullable=True)  # Dense vector from sentence-transformers
+    embedding_model = Column(String(100), nullable=True)  # Model used to generate the embedding
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class DocumentTree(Base):
+    __tablename__ = "document_trees"
+
+    id = Column(Integer, primary_key=True, index=True)
+    doc_name = Column(String(255), nullable=False)
+    doc_type = Column(String(50), default="guideline")
+    total_pages = Column(Integer)
+    tree_structure = Column(JSON, nullable=False)  # Full hierarchical tree structure
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+    # Relationship to nodes
+    nodes = relationship("TreeNode", back_populates="tree", cascade="all, delete-orphan")
+
+
+class TreeNode(Base):
+    __tablename__ = "tree_nodes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    tree_id = Column(Integer, ForeignKey("document_trees.id"))
+    node_id = Column(String(50), index=True)
+    parent_id = Column(String(50), index=True)
+    title = Column(String(500))
+    page_start = Column(Integer)
+    page_end = Column(Integer)
+    summary = Column(Text)
+    full_text = Column(Text)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    # Relationship to doc tree
+    tree = relationship("DocumentTree", back_populates="nodes")

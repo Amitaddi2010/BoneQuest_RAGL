@@ -4,17 +4,27 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from models.schemas import QueryRequest, QueryResponse, TraceStep, UserRole
 from services.pageindex_engine import PAGEINDEX_API_KEY
-from pageindex.client import PageIndexClient
 
 router = APIRouter()
-pi_client = PageIndexClient(api_key=PAGEINDEX_API_KEY)
+
+# Safe import: PageIndex SDK is optional
+pi_client = None
+try:
+    from pageindex.client import PageIndexClient  # type: ignore
+    if PAGEINDEX_API_KEY:
+        pi_client = PageIndexClient(api_key=PAGEINDEX_API_KEY)
+except ImportError:
+    pass
+except Exception:
+    pass
 
 @router.post("/query", response_model=QueryResponse)
 async def query_documents(request: QueryRequest):
     """Submit a clinical query. (Non-streaming)"""
+    if not pi_client:
+        raise HTTPException(status_code=503, detail="PageIndex SDK not available")
     try:
         messages = [
-            {"role": "system", "content": f"You are a clinical assistant. Role: {request.role}"},
             {"role": "user", "content": request.query}
         ]
         response = pi_client.chat_completions(
@@ -38,11 +48,12 @@ async def query_documents(request: QueryRequest):
 @router.post("/query/stream")
 async def stream_query(request: QueryRequest):
     """Stream a clinical query response with real-time reasoning trace."""
+    if not pi_client:
+        raise HTTPException(status_code=503, detail="PageIndex SDK not available")
 
     async def event_generator():
         try:
             messages = [
-                {"role": "system", "content": f"You are an expert orthopaedic AI assistant. Answer the query for a {request.role.value}."},
                 {"role": "user", "content": request.query}
             ]
             

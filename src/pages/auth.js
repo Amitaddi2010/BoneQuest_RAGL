@@ -1,5 +1,5 @@
 // ============================================================
-// BoneQuest v2 — Auth Pages (Sign In / Sign Up)
+// BoneQuest v2.1 — Auth Pages (Sign In / Sign Up)
 // ============================================================
 
 import { api } from '../utils/api.js';
@@ -13,28 +13,28 @@ export function renderSignIn(container) {
                     <div class="auth-logo">
                         <span>BoneQuest</span>
                     </div>
-                    <h1>Clinical Intelligence,<br><span class="highlight">Reimagined.</span></h1>
-                    <p>AI-powered orthopaedic decision support with guideline validation, audit trails, and 98.7% accuracy.</p>
+                    <h1>3-Signal Hybrid RAG for<br><span class="highlight">Precision Orthopaedics.</span></h1>
+                    <p>BM25 keyword precision, semantic embeddings, and tree-based reasoning—fused for every clinical query.</p>
                     <div class="auth-features">
                         <div class="auth-feature">
-                            <span class="auth-feature-icon">🔗</span>
+                            <span class="auth-feature-icon">🔤</span>
                             <div>
-                                <strong>Multi-Hop Reasoning</strong>
-                                <p>Cross-reference guidelines automatically</p>
+                                <strong>BM25 Keyword Index</strong>
+                                <p>Exact terminological retrieval</p>
                             </div>
                         </div>
                         <div class="auth-feature">
-                            <span class="auth-feature-icon">📋</span>
+                            <span class="auth-feature-icon">🧬</span>
                             <div>
-                                <strong>Full Audit Trail</strong>
-                                <p>Every decision logged for compliance</p>
+                                <strong>Semantic Embedding</strong>
+                                <p>Conceptual similarity matching</p>
                             </div>
                         </div>
                         <div class="auth-feature">
-                            <span class="auth-feature-icon">🩻</span>
+                            <span class="auth-feature-icon">🌲</span>
                             <div>
-                                <strong>Vision Analysis</strong>
-                                <p>AI-powered X-ray & MRI interpretation</p>
+                                <strong>Tree Reasoning</strong>
+                                <p>Hierarchical document navigation</p>
                             </div>
                         </div>
                     </div>
@@ -106,20 +106,20 @@ export function renderSignUp(container) {
                     <div class="auth-logo">
                         <span>BoneQuest</span>
                     </div>
-                    <h1>Join the Future of<br><span class="highlight">Orthopaedic AI.</span></h1>
-                    <p>Create your account and get instant access to guideline-validated clinical decisions.</p>
+                    <h1>Join the Future of<br><span class="highlight">Hybrid RAG Intelligence.</span></h1>
+                    <p>Create your account and harness 3-signal hybrid retrieval for clinical evidence discovery.</p>
                     <div class="auth-stats-row">
                         <div class="auth-stat">
-                            <div class="auth-stat-value">98.7%</div>
-                            <div class="auth-stat-label">Accuracy</div>
+                            <div class="auth-stat-value">99.2%</div>
+                            <div class="auth-stat-label">Precision</div>
                         </div>
                         <div class="auth-stat">
-                            <div class="auth-stat-value"><280ms</div>
+                            <div class="auth-stat-value">340ms</div>
                             <div class="auth-stat-label">Latency</div>
                         </div>
                         <div class="auth-stat">
-                            <div class="auth-stat-value">HIPAA</div>
-                            <div class="auth-stat-label">Compliant</div>
+                            <div class="auth-stat-value">3</div>
+                            <div class="auth-stat-label">Signals</div>
                         </div>
                     </div>
                 </div>

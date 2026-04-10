@@ -1,16 +1,17 @@
 // ============================================================
-// BoneQuest v2 — AI Chat Page (V2: Thinking Block + Rich Citations + Sections)
+// BoneQuest v2.1 — AI Chat Page (3-Signal Hybrid RAG)
 // ============================================================
 
 import { api }    from '../utils/api.js';
 import { auth }   from '../utils/auth.js';
 import { marked }  from 'https://cdn.jsdelivr.net/npm/marked/lib/marked.esm.js';
+import DOMPurify from 'https://cdn.jsdelivr.net/npm/dompurify@3.2.6/+esm';
 
 const SUGGESTIONS = [
-    "Management of comminuted tibial shaft fracture in a diabetic patient?",
-    "ACL reconstruction rehabilitation protocol — week by week timeline?",
-    "Treatment for displaced femoral neck fracture in 75yo with CHF?",
-    "Compare anterolateral vs medial approach for total hip arthroplasty?"
+    { icon: "🦴", text: "Management of comminuted tibial shaft fracture in a diabetic patient?" },
+    { icon: "🔬", text: "ACL reconstruction rehabilitation protocol — week by week timeline?" },
+    { icon: "🏥", text: "Treatment for displaced femoral neck fracture in 75yo with CHF?" },
+    { icon: "⚕️", text: "Compare anterolateral vs medial approach for total hip arthroplasty?" }
 ];
 
 let currentSessionId = null;
@@ -20,12 +21,24 @@ let sessions         = [];
 let lastUserMessage  = '';   // for regenerate
 let activeStreamController = null;
 let lastStreamPayload = null; // for retry stream
+let selectedDocumentId = 'global';
+let documentsCache = [];
+let lastGroundingStateEmitted = 'none';
+
+function emitTelemetry(event, payload = {}) {
+    try {
+        window.dispatchEvent(new CustomEvent('bonequest:telemetry', { detail: { event, ts: Date.now(), ...payload } }));
+    } catch {}
+}
 
 export function renderChat(container) {
     container.innerHTML = `
         <div class="chat-layout">
             <!-- Session History Sidebar -->
             <aside class="chat-sidebar" id="chat-sidebar">
+                <button class="sidebar-collapse-btn" id="sidebar-collapse-btn" title="Collapse sidebar">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+                </button>
                 <div class="sidebar-top">
                     <button class="btn btn-primary btn-full new-chat-btn" id="new-chat-btn">
                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
@@ -57,9 +70,14 @@ export function renderChat(container) {
                     <button class="btn btn-ghost sidebar-toggle" id="sidebar-toggle">☰</button>
                     <div class="chat-header-info">
                         <h3 id="chat-title">New Chat</h3>
-                        <span class="chat-header-model">Groq LLaMA · PageIndex RAG · V2</span>
+                        <div class="chat-header-signals">
+                            <span class="signal-badge signal-bm25" style="font-size:9px;padding:2px 7px;">BM25</span>
+                            <span class="signal-badge signal-semantic" style="font-size:9px;padding:2px 7px;">Semantic</span>
+                            <span class="signal-badge signal-tree" style="font-size:9px;padding:2px 7px;">Tree</span>
+                        </div>
                     </div>
                     <div class="chat-header-actions" style="margin-left: auto;">
+                        <span class="grounding-badge grounding-yes" id="auto-context-badge">Library: All Documents</span>
                         <button class="btn btn-ghost analysis-toggle-btn" id="analysis-toggle-btn" title="Open analysis panel">🔬 Analysis</button>
                         <button class="btn btn-ghost" id="export-ehr-btn" title="Export as Clinical Report" style="display:none; font-size: 13px; font-weight: 600; color: var(--accent-light);">📄 Export EHR</button>
                     </div>
@@ -69,22 +87,42 @@ export function renderChat(container) {
                     <div class="chat-welcome" id="chat-welcome">
                         <div class="welcome-badge">
                             <span class="badge-dot"></span>
-                            Clinical AI Active · V2
+                            3-Signal RAG Active
                         </div>
                         <div class="welcome-icon-large">
                             <div class="icon-glow"></div>
                             🦴
                         </div>
-                        <h2 class="text-gradient">BoneQuest Assistant</h2>
-                        <p>Specialized orthopaedic RAG engine with visible reasoning, structured evidence, and guideline validation.</p>
+                        <h2 class="text-gradient">BoneQuest Intelligence</h2>
+                        <p>3-Signal hybrid retrieval engine with <strong>Autonomous Librarian</strong> orchestration. BM25 keyword precision, semantic embedding matching, and hierarchical tree reasoning—fused for every query.</p>
+                        
+                        <div class="welcome-pipeline-status">
+                            <div class="welcome-signal-card">
+                                <span class="welcome-signal-icon" style="color: var(--signal-bm25);">🔤</span>
+                                <span class="welcome-signal-label">BM25 Index</span>
+                                <span class="welcome-signal-status welcome-signal-ok">Active</span>
+                            </div>
+                            <div class="welcome-signal-card">
+                                <span class="welcome-signal-icon" style="color: var(--signal-semantic);">🧬</span>
+                                <span class="welcome-signal-label">Semantic</span>
+                                <span class="welcome-signal-status welcome-signal-ok">Active</span>
+                            </div>
+                            <div class="welcome-signal-card">
+                                <span class="welcome-signal-icon" style="color: var(--signal-tree);">🌲</span>
+                                <span class="welcome-signal-label">Tree RAG</span>
+                                <span class="welcome-signal-status welcome-signal-ok">Active</span>
+                            </div>
+                        </div>
+
                         <div class="welcome-suggestions" id="suggestions">
                             ${SUGGESTIONS.map(s => `
-                                <button class="suggestion-chip" data-suggestion="${s}">
-                                    <span class="suggestion-icon">⚕️</span>
-                                    <span class="suggestion-text">${s}</span>
+                                <button class="suggestion-chip" data-suggestion="${s.text}">
+                                    <span class="suggestion-icon">${s.icon}</span>
+                                    <span class="suggestion-text">${s.text}</span>
                                 </button>
                             `).join('')}
                         </div>
+                        <p class="welcome-hint">Press <kbd>Enter</kbd> to send · <kbd>Shift+Enter</kbd> for newline</p>
                     </div>
                 </div>
 
@@ -112,13 +150,16 @@ export function renderChat(container) {
                         <div class="image-preview-card" id="image-preview-card"></div>
                     </div>
                     <div class="chat-disclaimer">
-                        AI-assisted clinical decision support. Always verify with institutional guidelines.
+                        <span class="chat-disclaimer-icon">⚕️</span> AI-assisted clinical decision support · 3-Signal Hybrid RAG · Always verify with institutional guidelines
                     </div>
                 </div>
             </div>
 
             <!-- Right Panel: Reasoning Trace & Anatomy -->
             <aside class="reasoning-panel" id="reasoning-panel">
+                <button class="panel-collapse-btn" id="panel-collapse-btn" title="Collapse panel">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                </button>
                 <div class="reasoning-header" style="flex-direction: column; align-items: stretch; padding-bottom: 0;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-4);">
                         <h3>🔬 Analysis & Context</h3>
@@ -162,6 +203,10 @@ export function renderChat(container) {
     const reasoningPanel = container.querySelector('#reasoning-panel');
     const reasoningOverlay = container.querySelector('#reasoning-overlay');
     const reasoningCloseBtn = container.querySelector('#reasoning-close-btn');
+    const autoContextBadge = container.querySelector('#auto-context-badge');
+    const chatLayout        = container.querySelector('.chat-layout');
+    const sidebarCollapseBtn = container.querySelector('#sidebar-collapse-btn');
+    const panelCollapseBtn  = container.querySelector('#panel-collapse-btn');
 
     let pendingImage  = null;
     let isRecording   = false;
@@ -244,6 +289,33 @@ export function renderChat(container) {
     });
     sidebarOverlay.addEventListener('click', () => setSidebarOpen(false));
 
+    // ── Desktop sidebar collapse toggles ────────────────────
+    function setLeftCollapsed(collapsed) {
+        chatLayout.classList.toggle('left-collapsed', !!collapsed);
+        try { localStorage.setItem('bq_left_collapsed', collapsed ? '1' : '0'); } catch {}
+    }
+
+    function setRightCollapsed(collapsed) {
+        chatLayout.classList.toggle('right-collapsed', !!collapsed);
+        try { localStorage.setItem('bq_right_collapsed', collapsed ? '1' : '0'); } catch {}
+    }
+
+    sidebarCollapseBtn.addEventListener('click', () => {
+        const isCollapsed = chatLayout.classList.contains('left-collapsed');
+        setLeftCollapsed(!isCollapsed);
+    });
+
+    panelCollapseBtn.addEventListener('click', () => {
+        const isCollapsed = chatLayout.classList.contains('right-collapsed');
+        setRightCollapsed(!isCollapsed);
+    });
+
+    // Restore collapse state from localStorage
+    try {
+        if (localStorage.getItem('bq_left_collapsed') === '1') setLeftCollapsed(true);
+        if (localStorage.getItem('bq_right_collapsed') === '1') setRightCollapsed(true);
+    } catch {}
+
     // ── Image attachment ────────────────────────────────────
     imageAttachBtn.addEventListener('click', () => imageInput.click());
     imageInput.addEventListener('change', (e) => {
@@ -305,6 +377,7 @@ export function renderChat(container) {
 
     // ── Load sessions ───────────────────────────────────────
     loadSessions();
+    loadDocuments();
 
     // ════════════════════════════════════════════════════════
     // CORE FUNCTIONS
@@ -317,6 +390,21 @@ export function renderChat(container) {
             renderSessionList();
         } catch {
             sessionList.innerHTML = '<div class="session-empty">Failed to load sessions</div>';
+        }
+    }
+
+    async function loadDocuments() {
+        try {
+            const result = await api.getDocuments();
+            documentsCache = result.documents || [];
+            if (autoContextBadge) {
+                autoContextBadge.textContent = `Library: ${documentsCache.length} Document${documentsCache.length === 1 ? '' : 's'} Available`;
+            }
+        } catch {
+            documentsCache = [];
+            if (autoContextBadge) {
+                autoContextBadge.textContent = 'Library: Unavailable';
+            }
         }
     }
 
@@ -398,7 +486,7 @@ export function renderChat(container) {
                     🦴
                 </div>
                 <h2 class="text-gradient">BoneQuest Assistant</h2>
-                <p>Specialized orthopaedic RAG engine with visible reasoning, structured evidence, and guideline validation.</p>
+                <p>Specialized orthopaedic reasoning engine with <strong>Autonomous Librarian</strong> discovery. No manual document selection needed—just ask your clinical question.</p>
                 <div class="welcome-suggestions" id="suggestions">
                     ${SUGGESTIONS.map(s => `
                         <button class="suggestion-chip" data-suggestion="${s}">
@@ -463,7 +551,9 @@ export function renderChat(container) {
                 session_id:  currentSessionId,
                 message:     text,
                 role:        currentRole,
-                document_id: 'doc-1',
+                document_id: selectedDocumentId,
+                max_context_tokens: 5000,
+                max_context_chunks: 8,
             };
         }
         if (appendUser) addUserMessage(text);
@@ -488,9 +578,20 @@ export function renderChat(container) {
         let fullText     = '';
         let liveTrace    = [];
         let liveCitations = [];
-        let confidence   = 0;
+        let confidence   = null;
         let finalMsgId   = null;
+        let retrievalMeta = {};
         let thinkingDone = false;
+        let streamHasCitations = false;
+        let streamWarningMessage = '';
+        let streamStartMs = Date.now();
+        let firstTokenLatencyMs = null;
+        let sectionsDetected = 0;
+        emitTelemetry('chat_stream_started', {
+            session_id: currentSessionId,
+            prompt_len: text.length,
+            docs_available: documentsCache.length,
+        });
 
         try {
             activeStreamController = new AbortController();
@@ -520,12 +621,16 @@ export function renderChat(container) {
                     try {
                         const traceData = JSON.parse(event.data);
                         liveTrace.push(traceData);
-                        updateTracePanel(liveTrace, liveCitations, confidence);
+                        updateTracePanel(liveTrace, liveCitations, confidence, streamHasCitations ? null : 'assessing');
                     } catch {}
                 }
 
                 // ── Streaming tokens ─────────────────────────
                 else if (event.type === 'token') {
+                    if (firstTokenLatencyMs === null) {
+                        firstTokenLatencyMs = Date.now() - streamStartMs;
+                        emitTelemetry('chat_stream_first_token_latency_ms', { value: firstTokenLatencyMs });
+                    }
                     fullText += event.data;
                     renderStreamingContent(bubble, fullText);
                     messagesEl.scrollTop = messagesEl.scrollHeight;
@@ -535,19 +640,35 @@ export function renderChat(container) {
                 else if (event.type === 'citation') {
                     try {
                         liveCitations = JSON.parse(event.data);
+                        streamHasCitations = Array.isArray(liveCitations) && liveCitations.length > 0;
+                        const nextState = getGroundingState(liveCitations);
+                        if (nextState !== lastGroundingStateEmitted) {
+                            emitTelemetry('chat_grounding_state_changed', { from: lastGroundingStateEmitted, to: nextState });
+                            lastGroundingStateEmitted = nextState;
+                        }
                         updateTracePanel(liveTrace, liveCitations, confidence);
                     } catch {}
                 }
 
                 // ── Confidence score ─────────────────────────
                 else if (event.type === 'confidence') {
-                    confidence = parseFloat(event.data);
-                    updateTracePanel(liveTrace, liveCitations, confidence);
+                    const parsed = parseFloat(event.data);
+                    confidence = Number.isFinite(parsed) ? parsed : null;
+                    updateTracePanel(liveTrace, liveCitations, confidence, streamHasCitations ? null : 'assessing');
+                }
+                else if (event.type === 'stream_warning') {
+                    streamWarningMessage = event.data || 'Stream parse issues detected.';
+                    appendThinkingLine(thinkingBody, `Integrity warning: ${streamWarningMessage}`);
+                    emitTelemetry('chat_stream_parse_error', { warning: streamWarningMessage });
                 }
 
                 // ── Message ID (finalize meta) ───────────────
                 else if (event.type === 'message_id') {
                     finalMsgId = event.data;
+                }
+                else if (event.type === 'retrieval_meta') {
+                    retrievalMeta = (event.data && typeof event.data === 'object') ? event.data : {};
+                    updateTracePanel(liveTrace, liveCitations, confidence, null, retrievalMeta);
                 }
 
                 // ── Done signal — stop consuming ─────────────
@@ -562,7 +683,16 @@ export function renderChat(container) {
             }
 
             // Finalize: parse sections, render citations, action toolbar
-            finalizeAiMessage(msgEl, bubble, meta, fullText, confidence, liveCitations, finalMsgId);
+            finalizeAiMessage(msgEl, bubble, meta, fullText, confidence, liveCitations, finalMsgId, streamWarningMessage, retrievalMeta);
+            sectionsDetected = hasSections(fullText) ? 1 : 0;
+            emitTelemetry('chat_stream_completed', {
+                duration_ms: Date.now() - streamStartMs,
+                first_token_latency_ms: firstTokenLatencyMs,
+                confidence,
+                citations_count: liveCitations?.length || 0,
+                grounding_state: getGroundingState(liveCitations),
+                sections: sectionsDetected,
+            });
 
             // Ensure thinking block is collapsed at end
             if (!thinkingDone) collapseThinkingBlock(thinkingEl);
@@ -571,7 +701,7 @@ export function renderChat(container) {
             // Abort is user-driven; keep partial text and mark it stopped.
             if (err?.name === 'AbortError') {
                 if (fullText.trim()) {
-                    finalizeAiMessage(msgEl, bubble, meta, fullText + `\n\n—\n⏹ *Generation stopped.*`, confidence, liveCitations, null);
+                    finalizeAiMessage(msgEl, bubble, meta, fullText + `\n\n—\n⏹ *Generation stopped.*`, confidence, liveCitations, null, streamWarningMessage);
                 } else {
                     bubble.innerHTML = renderMarkdown('⏹ *Generation stopped.*');
                     if (meta) meta.style.display = 'none';
@@ -607,6 +737,7 @@ export function renderChat(container) {
                         sendMessage();
                     });
                 }
+                emitTelemetry('chat_error_shown', { type: 'stream_error', detail: errorMsg });
             }
         } finally {
             activeStreamController = null;
@@ -719,7 +850,7 @@ export function renderChat(container) {
     }
 
     // ── Finalize after stream completes ────────────────────
-    function finalizeAiMessage(msgEl, bubble, meta, fullText, confidence, citations, messageId) {
+    function finalizeAiMessage(msgEl, bubble, meta, fullText, confidence, citations, messageId, streamWarningMessage = '', retrievalMeta = {}) {
         bubble.classList.remove('streaming-bubble');
         // Parse and render structured sections — ALL EXPANDED by default
         if (hasSections(fullText)) {
@@ -737,15 +868,21 @@ export function renderChat(container) {
 
         // Confidence badge
         let metaHtml = '';
-        if (confidence) {
+        if (confidence !== null && confidence !== undefined && Number.isFinite(confidence)) {
             const level = confidence > 0.85 ? 'high' : confidence > 0.6 ? 'medium' : 'low';
             const pct   = (confidence * 100).toFixed(0);
             metaHtml += `<span class="confidence-badge confidence-${level}">🎯 ${pct}% Confidence</span>`;
         }
 
+        // Grounding badge (RAG-backed vs not)
+        metaHtml += renderGroundingBadge(citations, retrievalMeta);
+
         // Rich citations panel
         if (citations && citations.length) {
             metaHtml += renderCitationsPanel(citations);
+        }
+        if (streamWarningMessage) {
+            metaHtml += `<div class="stream-warning">⚠️ ${escapeHtml(streamWarningMessage)}</div>`;
         }
 
         // Feedback + Action toolbar
@@ -971,17 +1108,18 @@ export function renderChat(container) {
     }
 
     // ── Add completed AI message (used when loading session) ─
-    function addAiMessageComplete(content, confidence, citations, messageId, feedbackScore) {
+    function addAiMessageComplete(content, confidence, citations, messageId, feedbackScore, retrievalMeta = {}) {
         const msg = document.createElement('div');
         msg.className = 'message message-ai';
 
         let bubbleHtml = hasSections(content) ? renderSections(content, true /* all open */) : renderMarkdown(content);
 
         let metaHtml = '';
-        if (confidence) {
+        if (confidence !== null && confidence !== undefined && Number.isFinite(confidence)) {
             const level = confidence > 0.85 ? 'high' : confidence > 0.6 ? 'medium' : 'low';
             metaHtml += `<span class="confidence-badge confidence-${level}">🎯 ${(confidence * 100).toFixed(0)}% Confidence</span>`;
         }
+        metaHtml += renderGroundingBadge(citations, retrievalMeta);
         if (citations && citations.length) {
             metaHtml += renderCitationsPanel(citations);
         }
@@ -1067,7 +1205,7 @@ export function renderChat(container) {
             messagesEl.appendChild(msg);
         } catch (err) {
             typingEl.remove();
-            addUserMessage(`⚠️ Image analysis failed: ${err.message}`);
+            addAiMessageComplete(`Image analysis failed: ${err.message}`, 0.2, [], null, 0);
         }
 
         pendingImage = null; imagePreview.style.display = 'none'; imageInput.value = '';
@@ -1091,7 +1229,7 @@ export function renderChat(container) {
         return el;
     }
 
-    function updateTracePanel(trace, citations, confidence) {
+    function updateTracePanel(trace, citations, confidence, groundingOverride = null, retrievalMeta = {}) {
         const traceContent = container.querySelector('#trace-content');
         if (!traceContent) return;
 
@@ -1123,7 +1261,7 @@ export function renderChat(container) {
         });
         html += '</div>';
 
-        if (confidence > 0) {
+        if (confidence !== null && confidence !== undefined && Number.isFinite(confidence)) {
             const level = confidence > 0.85 ? 'high' : confidence > 0.6 ? 'medium' : 'low';
             html += `
                 <div class="trace-confidence-rich">
@@ -1137,6 +1275,24 @@ export function renderChat(container) {
                 </div>
             `;
         }
+
+        // Grounding badge in trace panel (quick status)
+        const groundingState = groundingOverride || getGroundingState(citations, retrievalMeta);
+        html += `
+            <div class="grounding-status ${groundingState === 'grounded' ? 'grounded' : groundingState === 'partial' ? 'partial' : groundingState === 'assessing' ? 'assessing' : 'ungrounded'}">
+                ${
+                    groundingState === 'grounded'
+                        ? '✅ Grounded (Direct Evidence)'
+                        : groundingState === 'partial'
+                            ? '🟡 Partially Grounded (Indirect Evidence)'
+                            : groundingState === 'uncertain'
+                                ? '🟠 Evidence Found, Option-Level Uncertain'
+                                : groundingState === 'assessing'
+                                    ? '⏳ Assessing Evidence...'
+                                    : '⚠️ No Evidence Retrieved'
+                }
+            </div>
+        `;
 
         if (citations?.length) {
             html += '<div class="sources-list-rich"><h4>📚 Clinical Sources</h4><div class="source-badges">';
@@ -1193,10 +1349,36 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
+function getGroundingState(citations, retrievalMeta = {}) {
+    if (retrievalMeta && retrievalMeta.option_level_uncertain) return 'uncertain';
+    if (!(citations && citations.length)) return 'none';
+    const hasDirect = citations.some(c => {
+        if (typeof c !== 'object' || !c) return false;
+        const mt = String(c.match_type || '').toLowerCase();
+        return mt === 'direct' || mt === 'exact';
+    });
+    return hasDirect ? 'grounded' : 'partial';
+}
+
+function renderGroundingBadge(citations, retrievalMeta = {}) {
+    const state = getGroundingState(citations, retrievalMeta);
+    if (state === 'grounded') {
+        return `<span class="grounding-badge grounding-yes" title="Answer is grounded in directly matching retrieved evidence.">✅ Grounded (Direct Evidence)</span>`;
+    }
+    if (state === 'partial') {
+        return `<span class="grounding-badge grounding-partial" title="Retrieved evidence is relevant but indirect for this exact question.">🟡 Partially Grounded</span>`;
+    }
+    if (state === 'uncertain') {
+        return `<span class="grounding-badge grounding-uncertain" title="Evidence was retrieved, but option-level support was insufficient for a safe definitive choice.">🟠 Evidence Found, Option-Level Uncertain</span>`;
+    }
+    return `<span class="grounding-badge grounding-no" title="No relevant guideline evidence was retrieved. Treat this answer as unverified.">⚠️ No Evidence Retrieved</span>`;
+}
+
 function renderMarkdown(text) {
     try {
         const normalized = normalizeChatMarkdown(text || '');
-        return marked.parse(normalized, { breaks: true });
+        const html = marked.parse(normalized, { breaks: true });
+        return DOMPurify.sanitize(html);
     }
     catch { return (text || '').replace(/\n/g, '<br>'); }
 }
