@@ -1,0 +1,100 @@
+{
+  "skill_name": "ortho-clinical-ai",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "When considering the stress-strain curve patterns of viscoelastic materials such as ligaments, what is CREEP: 1) Area between load and unload parts of the stress-strain curve 2) Decrease in stress over time due to constant relaxation 3) Increased displacement of a material due to a constant force 4) The maximum stress that a material can tolerate",
+      "expected_output": "Option 3 — Increased displacement of a material due to a constant force. The skill should clearly distinguish creep from hysteresis (option 1), stress relaxation (option 2), and ultimate stress (option 4).",
+      "assertions": [
+        {"text": "Correctly identifies option 3 as the answer", "type": "content_match"},
+        {"text": "Explains the difference between creep and stress relaxation", "type": "quality"},
+        {"text": "Provides a textbook reference", "type": "citation"}
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Which of the following bone graft substitutes contains osteoinductive substances: 1) Demineralized bone matrix 2) Beta tricalcium phosphate 3) Hydroxyapatite 4) Silicone",
+      "expected_output": "Option 1 — Demineralized bone matrix. Should explain that DBM contains BMPs which are osteoinductive, while TCP and HA are only osteoconductive.",
+      "assertions": [
+        {"text": "Correctly identifies option 1 (DMB) as osteoinductive", "type": "content_match"},
+        {"text": "Explains osteoinductive vs osteoconductive vs osteogenic", "type": "quality"},
+        {"text": "Mentions BMPs as the osteoinductive component of DBM", "type": "content_match"}
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "What is the major structural difference between tendons and ligaments? 1) The major collagen in tendons is Type 1 whereas the major collagen in ligaments is Type 2. 2) Ligaments have higher vascularity and cellularity as compared to tendons. 3) Ligaments have lower percentage of collagen and higher percentage of proteoglycans and water as compared to tendons. 4) Ligaments do not have a highly ordered hierarchical structure.",
+      "expected_output": "Option 3 — Ligaments have lower collagen percentage and higher proteoglycans/water content. Both tendons and ligaments have Type I collagen as the primary type.",
+      "assertions": [
+        {"text": "Correctly identifies option 3", "type": "content_match"},
+        {"text": "Explains that both tendons and ligaments use Type I collagen", "type": "content_match"},
+        {"text": "Provides comparative percentages or ratios", "type": "quality"}
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "All of the following are complications of Pavlik Harness treatment for developmental dysplasia of the hip, EXCEPT: 1) Worsening acetabular dysplasia 2) Sciatic nerve palsy 3) Femoral nerve palsy 4) Osteonecrosis of femoral head",
+      "expected_output": "Option 2 — Sciatic nerve palsy. Femoral nerve palsy (not sciatic) is the characteristic nerve injury with Pavlik harness.",
+      "assertions": [
+        {"text": "Correctly identifies option 2 (sciatic nerve palsy) as the exception", "type": "content_match"},
+        {"text": "Explains that femoral nerve palsy is the characteristic complication", "type": "content_match"},
+        {"text": "Systematically addresses each option", "type": "quality"}
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "All of the following statements are true regarding closed reduction and pinning of pediatric supracondylar humerus fractures, EXCEPT: 1) Crossed pins are biomechanically more stable than lateral alone pins 2) The risk of ulnar nerve injury with medial pin is maximum with the elbow in hyperextension 3) The incidence of ulnar nerve injury with medial pins is 3-8% 4) With appropriate technique, lateral entry pins have comparable rates of maintaining reduction as compared to crossed pins",
+      "expected_output": "Option 2 — The risk is maximum with the elbow in hyperFLEXION, not hyperextension. The ulnar nerve subluxes anteriorly with flexion.",
+      "assertions": [
+        {"text": "Correctly identifies option 2 as false (hyperextension vs hyperflexion)", "type": "content_match"},
+        {"text": "Explains the mechanism of ulnar nerve subluxation with flexion", "type": "quality"}
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "The female-athlete triad consists of all of the following, EXCEPT: 1) Eating disorder 2) Amenorrhea 3) Osteoporosis 4) Stress fracture",
+      "expected_output": "Option 4 — Stress fracture. The triad is: eating disorder, amenorrhea, and osteoporosis. Stress fracture is a consequence but not part of the triad.",
+      "assertions": [
+        {"text": "Correctly identifies option 4 (stress fracture) as the exception", "type": "content_match"},
+        {"text": "Lists the three components of the triad correctly", "type": "content_match"}
+      ]
+    },
+    {
+      "id": 7,
+      "prompt": "All of the following are associations of radial club hand, EXCEPT: 1) VACTERL syndrome 2) Holt Oram Syndrome 3) Fanconi's anemia 4) Larsen syndrome",
+      "expected_output": "Option 4 — Larsen syndrome (characterized by multiple joint dislocations) is NOT associated with radial club hand.",
+      "assertions": [
+        {"text": "Correctly identifies option 4 (Larsen syndrome) as the exception", "type": "content_match"},
+        {"text": "Explains known associations (VACTERL, Holt-Oram, Fanconi's, TAR)", "type": "quality"}
+      ]
+    },
+    {
+      "id": 8,
+      "prompt": "All of the following methods can be used to predict limb length discrepancy at skeletal maturity, EXCEPT: 1) Multiplier method 2) Moseley graph 3) Green and Anderson tables 4) Ratliff's method",
+      "expected_output": "Option 4 — Ratliff's method is used for classification of AVN in pediatric femoral neck fractures, not for LLD prediction.",
+      "assertions": [
+        {"text": "Correctly identifies option 4 (Ratliff's method) as the exception", "type": "content_match"},
+        {"text": "Explains what Ratliff's method actually classifies", "type": "quality"}
+      ]
+    },
+    {
+      "id": 9,
+      "prompt": "All of the following are specific radiographic signs of tarsal coalition, EXCEPT: 1) Dorsal beaking of talus 2) Anteater nose sign 3) Osseous calcaneonavicular bar 4) Absence of middle facet of calcaneus",
+      "expected_output": "Option 4 — Absence of middle facet is a CT finding, not a specific radiographic (X-ray) sign. The other three are visible on plain radiographs.",
+      "assertions": [
+        {"text": "Correctly identifies option 4 as the exception", "type": "content_match"},
+        {"text": "Distinguishes between radiographic and CT findings", "type": "quality"}
+      ]
+    },
+    {
+      "id": 10,
+      "prompt": "Which of the following is a good prognostic factor for survival in osteogenic sarcoma: 1) Tumor necrosis of 70% after neoadjuvant chemotherapy 2) Histopathology showing parosteal variant 3) Histopathology showing small cell variant 4) Skip lesions",
+      "expected_output": "Option 2 — Parosteal osteosarcoma has the best prognosis. 70% necrosis (option 1) is NOT good (need >90% per Huvos grading). Small cell variant and skip lesions are poor prognostic factors.",
+      "assertions": [
+        {"text": "Correctly identifies option 2 (parosteal variant) as good prognosis", "type": "content_match"},
+        {"text": "Explains Huvos grading and the >90% necrosis threshold", "type": "quality"},
+        {"text": "Identifies skip lesions as poor prognostic factor", "type": "content_match"}
+      ]
+    }
+  ]
+}

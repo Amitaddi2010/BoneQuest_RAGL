@@ -59,6 +59,8 @@ os.makedirs(os.path.join(settings.UPLOAD_DIR, "images"), exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=settings.UPLOAD_DIR), name="uploads")
 
 # ── Health Check ───────────────────────────────────────────
+@app.get("/")
+@app.get("/health")
 @app.get("/api/health")
 async def health_check():
     return {
@@ -84,6 +86,13 @@ async def startup():
     print(f"   Groq API: {'✓ configured' if settings.GROQ_API_KEY else '✗ missing'}")
     print(f"   PageIndex: {'✓ configured' if settings.PAGEINDEX_API_KEY else '✗ missing'}")
     print(f"   Database: {settings.DATABASE_URL}")
+
+    # Ensure default admin exists
+    try:
+        from create_admin import create_admin
+        create_admin()
+    except Exception as e:
+        print(f"   [!] Failed to create default admin: {e}")
 
     # Preload embedding model at startup so first query is fast
     if settings.ENABLE_SEMANTIC_RETRIEVAL:
