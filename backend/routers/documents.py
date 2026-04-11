@@ -163,63 +163,68 @@ async def upload_document(
     db.commit()
     db.refresh(db_doc)
 
-    try:
-        chunks = parse_document_to_chunks(
-            upload_path, source_type=source_type,
-            overlap_chars=app_settings.CHUNK_OVERLAP_CHARS,
-        )
-        db.query(DocumentChunk).filter(DocumentChunk.document_id == db_doc.id).delete()
+    import threading
+    def _bg_process_document(db_doc_id, u_path, s_type, file_ext):
+        from database import SessionLocal
+        bg_db = SessionLocal()
+        try:
+            bg_doc = bg_db.query(Document).get(db_doc_id)
+            if not bg_doc:
+                return
 
-        # Compute dense embeddings for all chunks in a single batch
-        chunk_texts = [ch["content"][:1500] for ch in chunks]
-        embeddings = EmbeddingManager.encode(chunk_texts)
-
-        for i, ch in enumerate(chunks):
-            emb = embeddings[i] if embeddings and i < len(embeddings) else None
-            db.add(
-                DocumentChunk(
-                    document_id=db_doc.id,
-                    chunk_index=ch["chunk_index"],
-                    source_type=ch["source_type"],
-                    section=ch.get("section"),
-                    page_label=ch.get("page_label"),
-                    content=ch["content"],
-                    token_count=ch.get("token_count", 0),
-                    embedding=emb,
-                    embedding_model=app_settings.EMBEDDING_MODEL if emb else None,
+            try:
+                print(f"[documents] Background processing started for {db_doc_id}...")
+                chunks = parse_document_to_chunks(
+                    u_path, source_type=s_type,
+                    overlap_chars=app_settings.CHUNK_OVERLAP_CHARS,
                 )
-            )
-        db_doc.status = "indexed" if chunks else "error"
-        db.commit()
+                bg_db.query(DocumentChunk).filter(DocumentChunk.document_id == db_doc_id).delete()
 
-        # Backfill any chunks that missed embeddings (e.g., if model wasn't loaded yet)
-        if not embeddings and chunks:
-            compute_embeddings_for_chunks(db, db_doc.id)
+                # Compute dense embeddings for all chunks in a single batch
+                chunk_texts = [ch["content"][:1500] for ch in chunks]
+                embeddings = EmbeddingManager.encode(chunk_texts)
 
-        # Trigger PageIndex tree generation in background (non-blocking)
-        if app_settings.ENABLE_PAGEINDEX_TREE and ext in ('.pdf', '.md'):
-            import threading
-            def _generate_tree_bg(doc_id_val, path_val):
-                try:
-                    from services.pageindex_service import generate_tree_for_document
-                    from database import SessionLocal
-                    bg_db = SessionLocal()
+                for i, ch in enumerate(chunks):
+                    emb = embeddings[i] if embeddings and i < len(embeddings) else None
+                    bg_db.add(
+                        DocumentChunk(
+                            document_id=db_doc_id,
+                            chunk_index=ch["chunk_index"],
+                            source_type=ch["source_type"],
+                            section=ch.get("section"),
+                            page_label=ch.get("page_label"),
+                            content=ch["content"],
+                            token_count=ch.get("token_count", 0),
+                            embedding=emb,
+                            embedding_model=app_settings.EMBEDDING_MODEL if emb else None,
+                        )
+                    )
+                bg_doc.status = "indexed" if chunks else "error"
+                bg_db.commit()
+                print(f"[documents] Background chunks & embeddings finished: {len(chunks)} chunks.")
+
+                # Trigger PageIndex tree generation in background (same thread sequence)
+                if app_settings.ENABLE_PAGEINDEX_TREE and file_ext in ('.pdf', '.md'):
                     try:
-                        generate_tree_for_document(bg_db, doc_id_val, path_val)
-                    finally:
-                        bg_db.close()
-                except Exception as e:
-                    print(f"[documents] Background tree generation failed: {e}")
-            threading.Thread(
-                target=_generate_tree_bg,
-                args=(db_doc.id, upload_path),
-                daemon=True,
-            ).start()
+                        from services.pageindex_service import generate_tree_for_document
+                        generate_tree_for_document(bg_db, db_doc_id, u_path)
+                        print(f"[documents] Background tree generation finished.")
+                    except Exception as e:
+                        print(f"[documents] Background tree generation failed: {e}")
 
-    except Exception as e:
-        db_doc.status = "error"
-        db.commit()
-        raise HTTPException(status_code=500, detail=f"Document parsing failed: {e}")
+            except Exception as e:
+                print(f"[documents] Background parsing failed: {e}")
+                bg_doc.status = "error"
+                bg_db.commit()
+        finally:
+            bg_db.close()
+
+    # Launch background thread
+    threading.Thread(
+        target=_bg_process_document,
+        args=(db_doc.id, upload_path, source_type, ext),
+        daemon=True,
+    ).start()
 
     return DocumentInfo(
         id=internal_id,
@@ -227,7 +232,7 @@ async def upload_document(
         filename=file.filename,
         pages=0,
         doc_type=doc_type,
-        status=DocumentStatus(db_doc.status if db_doc.status in VALID_STATUSES else "processing"),
+        status=DocumentStatus.processing,
         sections=0,
         last_queried="Never",
         tree=None
