@@ -3,15 +3,15 @@
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "https://bonequest-ragl.onrender.com/api/$1"
+      "destination": "http://51.21.162.26:8000/api/$1"
     },
     {
       "source": "/auth/(.*)",
-      "destination": "https://bonequest-ragl.onrender.com/auth/$1"
+      "destination": "http://51.21.162.26:8000/auth/$1"
     },
     {
       "source": "/uploads/(.*)",
-      "destination": "https://bonequest-ragl.onrender.com/uploads/$1"
+      "destination": "http://51.21.162.26:8000/uploads/$1"
     },
     {
       "source": "/(.*)",
