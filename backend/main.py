@@ -96,35 +96,41 @@ async def startup():
 
     # Preload embedding model at startup so first query is fast
     if settings.ENABLE_SEMANTIC_RETRIEVAL:
-        print("   Loading embedding model...", end=" ", flush=True)
-        try:
-            from services.hybrid_retriever import EmbeddingManager, compute_embeddings_for_chunks
-            ready = EmbeddingManager.warmup()
-            print(f"{'✓ loaded' if ready else '✗ unavailable'}")
+        import threading
+        
+        def _warmup_and_backfill():
+            print("   Loading embedding model (in background)...", flush=True)
+            try:
+                from services.hybrid_retriever import EmbeddingManager, compute_embeddings_for_chunks
+                ready = EmbeddingManager.warmup()
+                print(f"   Embedding model: {'✓ loaded' if ready else '✗ unavailable'}")
 
-            # Backfill embeddings for any existing chunks that don't have them
-            if ready:
-                from database import SessionLocal
-                from models.db_models import DocumentChunk, Document
-                db = SessionLocal()
-                try:
-                    missing_count = db.query(DocumentChunk).filter(
-                        DocumentChunk.embedding.is_(None)
-                    ).count()
-                    if missing_count > 0:
-                        print(f"   Backfilling embeddings for {missing_count} chunks...", end=" ", flush=True)
-                        docs = db.query(Document).filter(Document.status == "indexed").all()
-                        total = 0
-                        for doc in docs:
-                            n = compute_embeddings_for_chunks(db, doc.id)
-                            total += n
-                        print(f"✓ {total} chunks embedded")
-                    else:
-                        print("   All chunks have embeddings ✓")
-                finally:
-                    db.close()
-        except Exception as e:
-            print(f"✗ error: {e}")
+                # Backfill embeddings for any existing chunks that don't have them
+                if ready:
+                    from database import SessionLocal
+                    from models.db_models import DocumentChunk, Document
+                    db = SessionLocal()
+                    try:
+                        missing_count = db.query(DocumentChunk).filter(
+                            DocumentChunk.embedding.is_(None)
+                        ).count()
+                        if missing_count > 0:
+                            print(f"   Backfilling embeddings for {missing_count} chunks...", flush=True)
+                            docs = db.query(Document).filter(Document.status == "indexed").all()
+                            total = 0
+                            for doc in docs:
+                                n = compute_embeddings_for_chunks(db, doc.id)
+                                total += n
+                            print(f"   ✓ {total} chunks embedded")
+                        else:
+                            print("   All chunks have embeddings ✓")
+                    finally:
+                        db.close()
+            except Exception as e:
+                print(f"   ✗ Model warmup error: {e}")
+
+        # Run in a background thread so it doesn't block Uvicorn/Gunicorn startup
+        threading.Thread(target=_warmup_and_backfill, daemon=True).start()
 
     # Show PageIndex Tree RAG status
     if settings.ENABLE_PAGEINDEX_TREE:
