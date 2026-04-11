@@ -84,7 +84,7 @@
 }
 
 .nebula-glow-2 {
-    background: radial-gradient(circle, var(--medical-teal-glow) 0%, transparent 70%);
+    background: radial-gradient(circle, var(--warm-accent-glow) 0%, transparent 70%);
     animation: nebula-drift 25s ease-in-out infinite reverse;
     width: 400px;
     height: 400px;
@@ -126,8 +126,8 @@
 
 /* --- Pulse Glow --- */
 @keyframes pulse-glow {
-    0%, 100% { box-shadow: 0 0 20px rgba(124,58,237,0.15); }
-    50% { box-shadow: 0 0 40px rgba(124,58,237,0.35); }
+    0%, 100% { box-shadow: 0 0 20px var(--accent-glow); }
+    50% { box-shadow: 0 0 40px var(--accent-glow); }
 }
 
 .pulse-glow {
@@ -250,9 +250,9 @@
 
 .shimmer-gradient {
     background: linear-gradient(90deg,
-        rgba(129, 74, 200, 0.05) 25%,
-        rgba(129, 74, 200, 0.12) 50%,
-        rgba(129, 74, 200, 0.05) 75%);
+        var(--accent-subtle) 25%,
+        var(--accent-glow) 50%,
+        var(--accent-subtle) 75%);
     background-size: 200% 100%;
     animation: shimmer-gradient 2s ease-in-out infinite;
 }

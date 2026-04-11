@@ -266,7 +266,7 @@
 
 .role-patient { background: rgba(59,130,246,0.15); color: #60a5fa; }
 .role-resident { background: var(--accent-subtle); color: var(--text-accent); }
-.role-consultant { background: rgba(6,182,212,0.15); color: var(--medical-teal); }
+.role-consultant { background: rgba(6,182,212,0.15); color: var(--accent-light); }
 .role-admin { background: rgba(239,68,68,0.15); color: #f87171; }
 
 .status-badge {
@@ -293,7 +293,7 @@
 .action-signup { color: var(--success); background: rgba(34,197,94,0.1); }
 .action-signin { color: #60a5fa; background: rgba(59,130,246,0.1); }
 .action-chat_query { color: var(--text-accent); background: var(--accent-subtle); }
-.action-image_analysis { color: var(--medical-teal); background: rgba(6,182,212,0.1); }
+.action-image_analysis { color: var(--accent-light); background: rgba(6,182,212,0.1); }
 
 /* ── Responsive ──────────────────────────────────────────── */
 @media (max-width: 1024px) {

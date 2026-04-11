@@ -3,6 +3,7 @@
 // ============================================================
 
 import { auth } from '../utils/auth.js';
+import { theme } from '../utils/theme.js';
 
 export function createNavbar(page = 'landing') {
     const nav = document.getElementById('main-nav');
@@ -37,7 +38,8 @@ export function createNavbar(page = 'landing') {
                 <span class="text-gradient">BoneQuest</span>
                 ${!isLanding ? '<span class="version-badge">v2.1</span>' : ''}
             </a>
-            <div class="nav-links">
+
+            <div class="nav-links" id="nav-links-menu">
                 ${isLanding ? `
                     <a href="#/" class="nav-link" data-scroll="features">Features</a>
                     <a href="#/" class="nav-link" data-scroll="comparison">Comparison</a>
@@ -47,12 +49,36 @@ export function createNavbar(page = 'landing') {
                     <a href="#/chat" class="nav-link ${page === 'chat' ? 'active' : ''}">AI Chat</a>
                     <a href="#/profile" class="nav-link ${page === 'profile' ? 'active' : ''}">Profile</a>
                 `}
+
+                <!-- Mobile-only: user info & actions inside menu overlay -->
+                ${isAuth ? `
+                    <div class="mobile-menu-extras">
+                        <div class="mobile-menu-user">
+                            <div class="nav-user-avatar">${(user?.full_name || 'U')[0].toUpperCase()}</div>
+                            <div>
+                                <span class="nav-user-name">${user?.full_name || 'User'}</span>
+                                <span class="nav-user-role">${user?.role || 'resident'}</span>
+                            </div>
+                        </div>
+                        <div class="mobile-menu-theme">
+                            ${theme.createSwitcherHTML()}
+                        </div>
+                        <button class="btn btn-ghost nav-logout mobile-logout-btn" id="mobile-logout-btn">⏻ Sign Out</button>
+                    </div>
+                ` : `
+                    <div class="mobile-menu-extras">
+                        <a href="#/signin" class="btn btn-secondary">Sign In</a>
+                        <a href="#/signup" class="btn btn-primary">Get Started <span class="arrow">↗</span></a>
+                    </div>
+                `}
             </div>
+
             <div class="nav-actions">
                 ${isAuth ? `
-                    <div class="nav-user">
+                    <div class="nav-user hide-mobile">
+                        ${theme.createSwitcherHTML()}
                         <a href="#/profile" class="nav-user-avatar" title="View Profile">${(user?.full_name || 'U')[0].toUpperCase()}</a>
-                        <div class="nav-user-info hide-mobile">
+                        <div class="nav-user-info">
                             <span class="nav-user-name">${user?.full_name || 'User'}</span>
                             <span class="nav-user-role">${user?.role || 'resident'}</span>
                         </div>
@@ -75,20 +101,35 @@ export function createNavbar(page = 'landing') {
 
     // Mobile Toggle Logic
     const toggle = nav.querySelector('#mobile-toggle');
-    const navLinks = nav.querySelector('.nav-links');
+    const navLinks = nav.querySelector('#nav-links-menu');
     
     if (toggle && navLinks) {
         toggle.addEventListener('click', () => {
             toggle.classList.toggle('active');
             navLinks.classList.toggle('active');
         });
+
+        // Close menu when a link inside is clicked
+        navLinks.querySelectorAll('.nav-link, .mobile-menu-extras .btn').forEach(link => {
+            link.addEventListener('click', () => {
+                toggle.classList.remove('active');
+                navLinks.classList.remove('active');
+            });
+        });
     }
 
-    // Logout handler
+    // Logout handlers (desktop + mobile)
     const logoutBtn = nav.querySelector('#nav-logout-btn');
     if (logoutBtn) {
         logoutBtn.addEventListener('click', () => auth.logout());
     }
+    const mobileLogout = nav.querySelector('#mobile-logout-btn');
+    if (mobileLogout) {
+        mobileLogout.addEventListener('click', () => auth.logout());
+    }
+
+    // Theme switcher — attach to ALL instances (desktop + mobile menu)
+    theme.attachSwitcherListeners(nav);
 
     // Scroll links
     nav.querySelectorAll('[data-scroll]').forEach(link => {

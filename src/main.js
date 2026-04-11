@@ -4,6 +4,7 @@
 
 import { Router } from './utils/router.js';
 import { auth } from './utils/auth.js';
+import { theme } from './utils/theme.js';  // Init themes on first paint
 import { createNavbar } from './components/navbar.js';
 import { renderLanding } from './pages/landing.js';
 import { renderDashboard } from './pages/dashboard.js';
@@ -134,5 +135,5 @@ window.addEventListener('unhandledrejection', (e) => {
 });
 
 // ── Startup Log ────────────────────────────────────────────
-console.log('%c🦴 BoneQuest v2.1', 'font-size: 20px; font-weight: bold; color: #7C3AED;');
-console.log('%c3-Signal Hybrid RAG · BM25 · Semantic · Tree', 'color: #94A3B8;');
+console.log('%c🦴 BoneQuest v2.2', 'font-size: 20px; font-weight: bold; color: #2EC4B6;');
+console.log('%c3-Signal Hybrid RAG · BM25 · Semantic · Tree', 'color: #A8A29E;');

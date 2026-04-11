@@ -13,29 +13,20 @@ export function renderSignIn(container) {
                     <div class="auth-logo">
                         <span>BoneQuest</span>
                     </div>
-                    <h1>3-Signal Hybrid RAG for<br><span class="highlight">Precision Orthopaedics.</span></h1>
+                    <h1>3-Signal Hybrid RAG for <span class="highlight">Precision Orthopaedics</span></h1>
                     <p>BM25 keyword precision, semantic embeddings, and tree-based reasoning—fused for every clinical query.</p>
                     <div class="auth-features">
                         <div class="auth-feature">
                             <span class="auth-feature-icon">🔤</span>
-                            <div>
-                                <strong>BM25 Keyword Index</strong>
-                                <p>Exact terminological retrieval</p>
-                            </div>
+                            <div><strong>BM25 Keyword Index</strong><p>Exact terminological retrieval</p></div>
                         </div>
                         <div class="auth-feature">
                             <span class="auth-feature-icon">🧬</span>
-                            <div>
-                                <strong>Semantic Embedding</strong>
-                                <p>Conceptual similarity matching</p>
-                            </div>
+                            <div><strong>Semantic Embedding</strong><p>Conceptual similarity matching</p></div>
                         </div>
                         <div class="auth-feature">
                             <span class="auth-feature-icon">🌲</span>
-                            <div>
-                                <strong>Tree Reasoning</strong>
-                                <p>Hierarchical document navigation</p>
-                            </div>
+                            <div><strong>Tree Reasoning</strong><p>Hierarchical document navigation</p></div>
                         </div>
                     </div>
                 </div>
@@ -44,11 +35,11 @@ export function renderSignIn(container) {
                 <div class="auth-form-container">
                     <div class="auth-form-header">
                         <h2>Welcome back</h2>
-                        <p>Sign in to your account to continue</p>
+                        <p>Sign in to continue</p>
                     </div>
                     <form id="signin-form" class="auth-form" autocomplete="off">
                         <div class="form-group">
-                            <label for="signin-email">Email Address</label>
+                            <label for="signin-email">Email</label>
                             <input type="email" id="signin-email" class="form-input" placeholder="doctor@hospital.org" required autocomplete="email">
                         </div>
                         <div class="form-group">
@@ -106,7 +97,7 @@ export function renderSignUp(container) {
                     <div class="auth-logo">
                         <span>BoneQuest</span>
                     </div>
-                    <h1>Join the Future of<br><span class="highlight">Hybrid RAG Intelligence.</span></h1>
+                    <h1>Join the Future of <span class="highlight">Hybrid RAG Intelligence</span></h1>
                     <p>Create your account and harness 3-signal hybrid retrieval for clinical evidence discovery.</p>
                     <div class="auth-stats-row">
                         <div class="auth-stat">
@@ -131,17 +122,25 @@ export function renderSignUp(container) {
                         <p>Set up your clinical profile</p>
                     </div>
                     <form id="signup-form" class="auth-form" autocomplete="off">
-                        <div class="form-group">
-                            <label for="signup-name">Full Name</label>
-                            <input type="text" id="signup-name" class="form-input" placeholder="Dr. Jane Smith" required autocomplete="name">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="signup-name">Full Name</label>
+                                <input type="text" id="signup-name" class="form-input" placeholder="Dr. Jane Smith" required autocomplete="name">
+                            </div>
+                            <div class="form-group">
+                                <label for="signup-email">Email</label>
+                                <input type="email" id="signup-email" class="form-input" placeholder="doctor@hospital.org" required autocomplete="email">
+                            </div>
                         </div>
-                        <div class="form-group">
-                            <label for="signup-email">Email Address</label>
-                            <input type="email" id="signup-email" class="form-input" placeholder="doctor@hospital.org" required autocomplete="email">
-                        </div>
-                        <div class="form-group">
-                            <label for="signup-hospital">Hospital ID <span class="form-optional">(optional)</span></label>
-                            <input type="text" id="signup-hospital" class="form-input" placeholder="e.g., PGIMER-CHD">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="signup-hospital">Hospital ID <span class="form-optional">(optional)</span></label>
+                                <input type="text" id="signup-hospital" class="form-input" placeholder="e.g., PGIMER">
+                            </div>
+                            <div class="form-group">
+                                <label for="signup-password">Password</label>
+                                <input type="password" id="signup-password" class="form-input" placeholder="Min 6 chars" required minlength="6">
+                            </div>
                         </div>
                         <div class="form-group">
                             <label>Clinical Role</label>
@@ -162,10 +161,6 @@ export function renderSignUp(container) {
                                     <div class="role-card-desc">Advanced techniques</div>
                                 </div>
                             </div>
-                        </div>
-                        <div class="form-group">
-                            <label for="signup-password">Password</label>
-                            <input type="password" id="signup-password" class="form-input" placeholder="Min 6 characters" required minlength="6">
                         </div>
                         <div id="signup-error" class="form-error" style="display:none;"></div>
                         <button type="submit" class="btn btn-primary btn-full" id="signup-btn">

@@ -257,8 +257,9 @@ async def send_message(
                 else:
                     # Default: Just stream it downstream
                     yield f"data: {json.dumps(event)}\n\n"
-                    if event["type"] in ["trace", "thinking", "token"]:
-                        await asyncio.sleep(0.015)
+                    # Minimal delay only for trace/thinking steps (not tokens)
+                    if event["type"] in ["trace", "thinking"]:
+                        await asyncio.sleep(0.002)
 
         except Exception as e:
             error_event = {"type": "error", "data": str(e)}
@@ -332,8 +333,8 @@ async def stream_query(
                 if event["type"] == "final_payload":
                     continue  # We don't need to yield this for basic streaming
                 yield f"data: {json.dumps(event)}\n\n"
-                if event["type"] in ["trace", "thinking", "token"]:
-                    await asyncio.sleep(0.015)
+                if event["type"] in ["trace", "thinking"]:
+                    await asyncio.sleep(0.002)
         except Exception as e:
             error_event = {"type": "error", "data": str(e)}
             yield f"data: {json.dumps(error_event)}\n\n"

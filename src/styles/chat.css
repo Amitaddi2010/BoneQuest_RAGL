@@ -6,11 +6,14 @@
 .chat-layout {
     display: grid;
     grid-template-columns: var(--sidebar-width) 1fr 320px;
+    grid-template-rows: 1fr;
     height: calc(100vh - var(--nav-height));
     margin-top: var(--nav-height);
-    overflow: hidden;
+    overflow: visible;
     background: var(--bg-primary);
     transition: grid-template-columns 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    min-height: 0;
+    position: relative;
 }
 
 /* ── Collapsed sidebar states (desktop) ─────────────────── */
@@ -38,6 +41,7 @@
     z-index: 10;
     transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
     position: relative;
+    max-height: calc(100vh - var(--nav-height));
 }
 
 /* Left sidebar collapsed state */
@@ -75,13 +79,14 @@
     font-size: 14px;
     transition: all 0.25s ease;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-    opacity: 0;
+    opacity: 1;
     padding: 0;
 }
 
 .chat-sidebar:hover .sidebar-collapse-btn,
 .sidebar-collapse-btn:focus-visible {
     opacity: 1;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
 }
 
 .chat-layout.left-collapsed .sidebar-collapse-btn {
@@ -94,7 +99,7 @@
     border-color: var(--accent-primary);
     color: var(--text-accent);
     transform: translateY(-50%) scale(1.1);
-    box-shadow: 0 4px 14px rgba(129, 74, 200, 0.3);
+    box-shadow: 0 4px 14px rgba(14, 124, 107, 0.3);
 }
 
 .sidebar-collapse-btn svg {
@@ -169,7 +174,7 @@
 .session-item.active {
     background: var(--accent-subtle);
     border: 1px solid var(--border-accent);
-    box-shadow: 0 4px 20px rgba(129, 74, 200, 0.1);
+    box-shadow: 0 4px 20px rgba(14, 124, 107, 0.1);
 }
 
 .session-item-content {
@@ -267,6 +272,10 @@
     flex-direction: column;
     overflow: hidden;
     background: var(--bg-primary);
+    min-height: 0;
+    min-width: 0;
+    max-height: calc(100vh - var(--nav-height));
+    height: calc(100vh - var(--nav-height));
 }
 
 .chat-header {
@@ -292,6 +301,8 @@
 
 .chat-header-info {
     flex: 1;
+    min-width: 0;
+    overflow: hidden;
 }
 
 .chat-header-info h3 {
@@ -314,6 +325,8 @@
     display: flex;
     align-items: center;
     gap: var(--space-3);
+    flex-wrap: wrap;
+    flex-shrink: 0;
 }
 
 .chat-header-actions .grounding-badge {
@@ -380,10 +393,11 @@
 
 /* ── Messages ────────────────────────────────────────────── */
 .chat-messages {
-    flex: 1;
+    flex: 1 1 0;
     overflow-y: auto;
     padding: var(--space-6);
     scroll-behavior: smooth;
+    min-height: 0;
 }
 
 .chat-messages > * {
@@ -657,7 +671,7 @@
     background: var(--accent-gradient);
     color: white;
     border-bottom-right-radius: 4px;
-    box-shadow: 0 8px 25px rgba(129, 74, 200, 0.25);
+    box-shadow: 0 8px 25px rgba(14, 124, 107, 0.25);
 }
 
 .message-ai .message-bubble {
@@ -1033,6 +1047,9 @@
     background: rgba(0, 0, 0, 0.4);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
+    flex-shrink: 0;
+    position: relative;
+    z-index: 2;
 }
 
 .chat-input-wrapper {
@@ -1050,7 +1067,7 @@
 
 .chat-input-wrapper:focus-within {
     border-color: var(--accent-primary);
-    box-shadow: 0 0 30px rgba(129, 74, 200, 0.2);
+    box-shadow: 0 0 30px rgba(14, 124, 107, 0.2);
     background: rgba(255, 255, 255, 0.05);
 }
 
@@ -1243,15 +1260,21 @@
 
 /* ── Reasoning Panel ─────────────────────────────────────── */
 .reasoning-panel {
-    background: rgba(5, 5, 8, 0.85);
+    background: var(--glass-strong-bg, rgba(5, 5, 8, 0.85));
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
     border-left: 1px solid var(--border-subtle);
     padding: var(--space-6);
-    overflow-y: auto;
+    overflow: visible;
     z-index: 10;
     transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
     position: relative;
+    max-height: calc(100vh - var(--nav-height));
+}
+
+.reasoning-panel .panel-body {
+    overflow-y: auto;
+    height: calc(100% - 80px);
 }
 
 /* Right panel collapsed state */
@@ -1289,13 +1312,15 @@
     font-size: 14px;
     transition: all 0.25s ease;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-    opacity: 0;
+    opacity: 1;
     padding: 0;
+    overflow: visible;
 }
 
 .reasoning-panel:hover .panel-collapse-btn,
 .panel-collapse-btn:focus-visible {
     opacity: 1;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
 }
 
 .chat-layout.right-collapsed .panel-collapse-btn {
@@ -1308,7 +1333,7 @@
     border-color: var(--accent-primary);
     color: var(--text-accent);
     transform: translateY(-50%) scale(1.1);
-    box-shadow: 0 4px 14px rgba(129, 74, 200, 0.3);
+    box-shadow: 0 4px 14px rgba(14, 124, 107, 0.3);
 }
 
 .panel-collapse-btn svg {
@@ -1510,159 +1535,11 @@
 }
 
 /* ── Responsive ──────────────────────────────────────────── */
-@media (max-width: 1200px) {
-    .chat-layout {
-        grid-template-columns: 280px 1fr;
-    }
-    /* Hide desktop collapse buttons on tablet/mobile */
-    .sidebar-collapse-btn,
-    .panel-collapse-btn {
-        display: none !important;
-    }
-    /* Reset collapsed states */
-    .chat-layout.left-collapsed {
-        grid-template-columns: 280px 1fr;
-    }
-    .chat-layout.right-collapsed {
-        grid-template-columns: 280px 1fr;
-    }
-    .chat-layout.left-collapsed.right-collapsed {
-        grid-template-columns: 280px 1fr;
-    }
-    .chat-layout.left-collapsed .chat-sidebar .sidebar-top,
-    .chat-layout.left-collapsed .chat-sidebar .session-list,
-    .chat-layout.left-collapsed .chat-sidebar .sidebar-bottom {
-        opacity: 1;
-        pointer-events: auto;
-        visibility: visible;
-    }
-    .chat-layout.left-collapsed .chat-sidebar {
-        min-width: unset;
-        max-width: unset;
-    }
-    .reasoning-panel {
-        display: block;
-        position: fixed;
-        top: var(--nav-height);
-        right: -360px;
-        width: min(92vw, 360px);
-        height: calc(100vh - var(--nav-height));
-        z-index: calc(var(--z-modal) + 2);
-        transition: right var(--transition-smooth);
-        border-left: 1px solid var(--border-subtle);
-        box-shadow: -10px 0 32px rgba(0, 0, 0, 0.4);
-        min-width: unset;
-        max-width: unset;
-    }
-    .reasoning-panel.open {
-        right: 0;
-    }
-    .chat-layout.right-collapsed .reasoning-panel .reasoning-header,
-    .chat-layout.right-collapsed .reasoning-panel .panel-body {
-        opacity: 1;
-        pointer-events: auto;
-        visibility: visible;
-    }
-    .chat-layout.right-collapsed .reasoning-panel {
-        min-width: unset;
-        max-width: unset;
-        padding: var(--space-6);
-    }
-    .reasoning-close-btn {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-    }
-    .analysis-toggle-btn {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 12px;
-    }
-    .reasoning-overlay {
-        position: fixed;
-        top: var(--nav-height);
-        left: 0;
-        width: 100vw;
-        height: calc(100vh - var(--nav-height));
-        background: rgba(0, 0, 0, 0.45);
-        z-index: calc(var(--z-modal) + 1);
-        opacity: 0;
-        pointer-events: none;
-        transition: opacity var(--transition-fast);
-        display: block;
-    }
-    .reasoning-overlay.open {
-        opacity: 1;
-        pointer-events: auto;
-    }
-}
+/* NOTE: Main responsive breakpoints are defined below in the 
+   RESPONSIVE DESIGN section (line ~2234+). The rules below 
+   handle tablet-only adjustments at 768px. */
 
-@media (max-width: 768px) {
-    .chat-layout {
-        grid-template-columns: 1fr;
-    }
-    /* Reset collapsed states on mobile */
-    .chat-layout.left-collapsed,
-    .chat-layout.right-collapsed,
-    .chat-layout.left-collapsed.right-collapsed {
-        grid-template-columns: 1fr;
-    }
-    .chat-sidebar {
-        position: fixed;
-        left: -100%;
-        top: var(--nav-height);
-        width: min(88vw, 320px);
-        height: calc(100vh - var(--nav-height));
-        z-index: calc(var(--z-modal) + 4);
-        transition: left var(--transition-smooth);
-        min-width: unset;
-        max-width: unset;
-    }
-    .chat-sidebar.open {
-        left: 0;
-        box-shadow: var(--shadow-lg);
-    }
-    .sidebar-toggle {
-        display: block !important;
-    }
-    .sidebar-overlay {
-        position: fixed;
-        top: var(--nav-height);
-        left: 0;
-        width: 100vw;
-        height: calc(100vh - var(--nav-height));
-        background: rgba(0, 0, 0, 0.45);
-        z-index: calc(var(--z-modal) + 3);
-        opacity: 0;
-        pointer-events: none;
-        transition: opacity var(--transition-fast);
-        display: block;
-    }
-    .sidebar-overlay.open {
-        opacity: 1;
-        pointer-events: auto;
-    }
-    .welcome-suggestions {
-        grid-template-columns: 1fr;
-    }
-    .message {
-        max-width: 95%;
-    }
-    .chat-header {
-        padding: var(--space-3) var(--space-4);
-    }
-    .chat-header-actions .grounding-badge {
-        font-size: 10px;
-        padding: 4px 8px;
-    }
-    .chat-input-area {
-        padding: var(--space-3) var(--space-4);
-    }
-    .chat-messages {
-        padding: var(--space-4);
-    }
-}
+/* Mobile-specific 768px rules are consolidated in RESPONSIVE DESIGN section below */
 
 @media (prefers-reduced-motion: reduce) {
     .message,
@@ -2221,4 +2098,350 @@
 @keyframes scaleIn {
     from { opacity: 0; transform: scale(0.95); }
     to { opacity: 1; transform: scale(1); }
+}
+
+/* ============================================================
+   RESPONSIVE DESIGN — Chat Page
+   ============================================================ */
+
+/* ── Tablet (≤1200px): Auto-collapse right panel ────────── */
+@media (max-width: 1200px) {
+    .chat-layout {
+        grid-template-columns: var(--sidebar-width) 1fr 48px;
+    }
+    .chat-layout.left-collapsed {
+        grid-template-columns: 48px 1fr 48px;
+    }
+    .chat-layout .reasoning-panel .reasoning-header,
+    .chat-layout .reasoning-panel .panel-body {
+        opacity: 0;
+        pointer-events: none;
+        visibility: hidden;
+    }
+    .chat-layout .reasoning-panel {
+        min-width: 48px;
+        max-width: 48px;
+        padding: var(--space-2);
+    }
+    .chat-layout .panel-collapse-btn {
+        opacity: 1;
+        left: -14px;
+    }
+    .chat-layout .panel-collapse-btn svg {
+        transform: rotate(180deg);
+    }
+    .analysis-toggle-btn {
+        display: inline-flex !important;
+    }
+}
+
+/* ── Tablet (≤1024px): Left sidebar collapses ───────────── */
+@media (max-width: 1024px) {
+    .chat-layout {
+        grid-template-columns: 48px 1fr 48px;
+    }
+
+    .chat-sidebar .sidebar-top,
+    .chat-sidebar .session-list,
+    .chat-sidebar .sidebar-bottom {
+        opacity: 0;
+        pointer-events: none;
+        visibility: hidden;
+    }
+
+    .chat-sidebar {
+        min-width: 48px;
+        max-width: 48px;
+        padding: var(--space-2);
+    }
+
+    .sidebar-collapse-btn {
+        opacity: 1;
+        right: -14px;
+    }
+
+    .sidebar-collapse-btn svg {
+        transform: rotate(180deg);
+    }
+
+    /* When expanded on tablet, overlay mode */
+    .chat-layout.left-expanded-mobile .chat-sidebar {
+        position: fixed;
+        left: 0;
+        top: var(--nav-height);
+        bottom: 0;
+        width: 280px;
+        max-width: 280px;
+        z-index: var(--z-modal);
+        box-shadow: 8px 0 32px rgba(0,0,0,0.3);
+    }
+
+    .chat-layout.left-expanded-mobile .chat-sidebar .sidebar-top,
+    .chat-layout.left-expanded-mobile .chat-sidebar .session-list,
+    .chat-layout.left-expanded-mobile .chat-sidebar .sidebar-bottom {
+        opacity: 1;
+        pointer-events: auto;
+        visibility: visible;
+    }
+}
+
+/* ── Mobile (≤768px): Single column, drawer panels ──────── */
+@media (max-width: 768px) {
+    .chat-layout,
+    .chat-layout.left-collapsed,
+    .chat-layout.right-collapsed,
+    .chat-layout.left-collapsed.right-collapsed {
+        grid-template-columns: 1fr;
+        grid-template-rows: 1fr;
+    }
+
+    /* Reset ALL tablet/desktop collapsed overrides on mobile.
+       The ≤1024px breakpoint hides sidebar content and constrains to 48px.
+       On mobile we need a full drawer, so we must override everything. */
+    .chat-sidebar .sidebar-top,
+    .chat-sidebar .session-list,
+    .chat-sidebar .sidebar-bottom,
+    .chat-layout.left-collapsed .chat-sidebar .sidebar-top,
+    .chat-layout.left-collapsed .chat-sidebar .session-list,
+    .chat-layout.left-collapsed .chat-sidebar .sidebar-bottom {
+        opacity: 1 !important;
+        pointer-events: auto !important;
+        visibility: visible !important;
+    }
+
+    .chat-layout.left-collapsed .chat-sidebar {
+        min-width: unset;
+        max-width: unset;
+    }
+
+    /* Sidebar becomes a fixed off-screen drawer */
+    .chat-sidebar {
+        position: fixed !important;
+        left: -100%;
+        top: var(--nav-height);
+        width: min(85vw, 320px) !important;
+        min-width: unset !important;
+        max-width: unset !important;
+        height: calc(100vh - var(--nav-height));
+        z-index: calc(var(--z-modal) + 2);
+        transition: left var(--transition-smooth);
+        box-shadow: 8px 0 32px rgba(0,0,0,0.4);
+        padding: var(--space-4) !important;
+        background: rgba(5, 5, 8, 0.95);
+    }
+
+    .chat-sidebar.open {
+        left: 0 !important;
+    }
+
+    .reasoning-panel {
+        display: none;
+    }
+
+    /* Sidebar toggle hamburger */
+    .sidebar-toggle {
+        display: block !important;
+    }
+
+    /* Sidebar becomes overlay drawer */
+    .sidebar-overlay {
+        display: block;
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.5);
+        z-index: calc(var(--z-modal) + 1);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.3s ease;
+    }
+
+    .sidebar-overlay.open {
+        opacity: 1;
+        pointer-events: auto;
+    }
+
+    /* Reasoning panel as drawer */
+    .reasoning-panel.open {
+        display: block;
+        position: fixed;
+        right: 0;
+        top: var(--nav-height);
+        bottom: 0;
+        width: 85vw;
+        max-width: 360px;
+        z-index: var(--z-modal);
+        overflow-y: auto;
+        padding: var(--space-4);
+        box-shadow: -8px 0 32px rgba(0,0,0,0.4);
+    }
+
+    .reasoning-panel.open .reasoning-header,
+    .reasoning-panel.open .panel-body {
+        opacity: 1;
+        pointer-events: auto;
+        visibility: visible;
+    }
+
+    .reasoning-overlay.open {
+        display: block;
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.5);
+        z-index: calc(var(--z-modal) - 1);
+    }
+
+    /* Collapse buttons hidden on mobile (use hamburger/X) */
+    .sidebar-collapse-btn,
+    .panel-collapse-btn {
+        display: none;
+    }
+
+    /* Show mobile toggle buttons */
+    .reasoning-close-btn {
+        display: flex;
+    }
+
+    .analysis-toggle-btn {
+        display: inline-flex;
+    }
+
+    /* Chat header adjustments */
+    .chat-header {
+        padding: var(--space-2) var(--space-3);
+        flex-wrap: wrap;
+        gap: var(--space-2);
+        min-height: 48px;
+    }
+
+    .chat-header-info {
+        flex: 0 1 auto;
+        max-width: calc(100% - 100px);
+    }
+
+    .chat-header-info h3 {
+        font-size: var(--text-sm);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    /* Hide signal badges on mobile — redundant clutter */
+    .chat-header-signals {
+        display: none !important;
+    }
+
+    /* Actions row — spans full width below title */
+    .chat-header-actions {
+        flex: 1 0 100%;
+        justify-content: flex-start;
+        gap: var(--space-2);
+        order: 3;
+        border-top: 1px solid var(--border-subtle);
+        padding-top: var(--space-2);
+    }
+
+    #auto-context-badge {
+        font-size: 9px;
+        padding: 2px 6px;
+        max-width: 160px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .analysis-toggle-btn {
+        font-size: 12px !important;
+        padding: var(--space-1) var(--space-2) !important;
+    }
+
+    #export-ehr-btn {
+        font-size: 11px !important;
+        padding: var(--space-1) var(--space-2) !important;
+    }
+
+    /* Chat input adjustments */
+    .chat-input-wrapper {
+        border-radius: var(--radius-lg);
+    }
+
+    .chat-input {
+        font-size: 15px;
+        min-height: 44px;
+    }
+
+    /* Welcome screen */
+    .chat-welcome {
+        padding: var(--space-4);
+    }
+
+    .chat-welcome h2 {
+        font-size: var(--text-xl);
+    }
+
+    .chat-welcome p {
+        font-size: var(--text-sm);
+    }
+
+    .welcome-suggestions {
+        grid-template-columns: 1fr;
+        gap: var(--space-2);
+    }
+
+    .suggestion-chip {
+        font-size: var(--text-xs);
+        padding: var(--space-3);
+    }
+
+    /* Message bubbles */
+    .message {
+        gap: var(--space-2);
+        max-width: 95%;
+    }
+
+    .message-avatar {
+        width: 28px;
+        height: 28px;
+        font-size: 14px;
+    }
+
+    .message-bubble {
+        font-size: var(--text-sm);
+    }
+
+    /* Fix input area at bottom */
+    .chat-input-area {
+        padding: var(--space-2) var(--space-3);
+    }
+
+    .chat-messages {
+        padding: var(--space-4);
+    }
+}
+
+/* ── Small Mobile (≤480px): Tighter spacing ─────────────── */
+@media (max-width: 480px) {
+    .chat-welcome h2 {
+        font-size: var(--text-lg);
+    }
+
+    .welcome-icon-large {
+        font-size: 2rem;
+    }
+
+    .message-avatar {
+        width: 24px;
+        height: 24px;
+        font-size: 12px;
+    }
+
+    /* Pipeline badges stack */
+    .pipeline-badges {
+        flex-wrap: wrap;
+        gap: 4px;
+    }
+
+    .pipeline-badge {
+        font-size: 9px;
+        padding: 2px 6px;
+    }
 }

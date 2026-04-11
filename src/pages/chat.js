@@ -31,6 +31,25 @@ function emitTelemetry(event, payload = {}) {
     } catch {}
 }
 
+/** Animate a confidence counter from 0 to `target` with ease-out bounce. */
+function animateConfidenceCounter(el, target, duration = 1200) {
+    const start = performance.now();
+    function easeOutBounce(t) {
+        if (t < 1 / 2.75)      return 7.5625 * t * t;
+        else if (t < 2 / 2.75) return 7.5625 * (t -= 1.5 / 2.75) * t + 0.75;
+        else if (t < 2.5 / 2.75) return 7.5625 * (t -= 2.25 / 2.75) * t + 0.9375;
+        else                     return 7.5625 * (t -= 2.625 / 2.75) * t + 0.984375;
+    }
+    function tick(now) {
+        const elapsed = Math.min((now - start) / duration, 1);
+        const val = Math.round(easeOutBounce(elapsed) * target);
+        el.textContent = val;
+        if (elapsed < 1) requestAnimationFrame(tick);
+        else el.textContent = target;
+    }
+    requestAnimationFrame(tick);
+}
+
 export function renderChat(container) {
     container.innerHTML = `
         <div class="chat-layout">
@@ -263,11 +282,19 @@ export function renderChat(container) {
             }
         });
         report += "\nDISCLAIMER: AI-assisted consultation. Always verify protocols.\n";
-        const blob = new Blob([report], { type: 'text/plain' });
+        const blob = new Blob([report], { type: 'text/plain;charset=utf-8' });
         const url  = URL.createObjectURL(blob);
         const a    = document.createElement('a');
-        a.href     = url; a.download = `BoneQuest_V2_${Date.now()}.txt`; a.click();
-        URL.revokeObjectURL(url);
+        a.href     = url;
+        a.download = `BoneQuest_V2_${Date.now()}.txt`;
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        // Delay revocation to ensure download starts
+        setTimeout(() => {
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }, 1000);
     });
 
     // ── Auto-resize textarea ────────────────────────────────
@@ -465,7 +492,7 @@ export function renderChat(container) {
                 }
             }
             messagesEl.scrollTop = messagesEl.scrollHeight;
-            exportEhrBtn.style.display = result.messages?.length ? 'block' : 'none';
+            exportEhrBtn.style.display = result.messages?.length ? 'inline-flex' : 'none';
         } catch (err) {
             console.error('Failed to load messages:', err);
         }
@@ -477,21 +504,21 @@ export function renderChat(container) {
         exportEhrBtn.style.display = 'none';
         messagesEl.innerHTML = `
             <div class="chat-welcome" id="chat-welcome">
-                <div class="welcome-badge">
+                <div class="welcome-badge animate-reveal" style="--delay: 100ms">
                     <span class="badge-dot"></span>
                     Clinical AI Active · V2
                 </div>
-                <div class="welcome-icon-large">
+                <div class="welcome-icon-large animate-reveal" style="--delay: 200ms">
                     <div class="icon-glow"></div>
                     🦴
                 </div>
-                <h2 class="text-gradient">BoneQuest Assistant</h2>
-                <p>Specialized orthopaedic reasoning engine with <strong>Autonomous Librarian</strong> discovery. No manual document selection needed—just ask your clinical question.</p>
+                <h2 class="text-gradient animate-reveal" style="--delay: 300ms">BoneQuest Assistant</h2>
+                <p class="animate-reveal" style="--delay: 400ms">Specialized orthopaedic reasoning engine with <strong>Autonomous Librarian</strong> discovery. No manual document selection needed—just ask your clinical question.</p>
                 <div class="welcome-suggestions" id="suggestions">
-                    ${SUGGESTIONS.map(s => `
-                        <button class="suggestion-chip" data-suggestion="${s}">
-                            <span class="suggestion-icon">⚕️</span>
-                            <span class="suggestion-text">${s}</span>
+                    ${SUGGESTIONS.map((s, i) => `
+                        <button class="suggestion-chip animate-slide-up" style="--delay: ${500 + i * 100}ms" data-suggestion="${s.text}">
+                            <span class="suggestion-icon">${s.icon}</span>
+                            <span class="suggestion-text">${s.text}</span>
                         </button>
                     `).join('')}
                 </div>
@@ -541,7 +568,7 @@ export function renderChat(container) {
                 return;
             }
         }
-        exportEhrBtn.style.display = 'block';
+        exportEhrBtn.style.display = 'inline-flex';
 
         if (pendingImage) { await handleImageUpload(text); return; }
 
@@ -829,24 +856,24 @@ export function renderChat(container) {
         if (toggle)  toggle.classList.add('collapsed');
     }
 
-    // ── Render streaming content — parse sections on-the-fly ─
+    // ── Render streaming content — THROTTLED for performance ─
+    let _streamRafId = null;
+    let _streamPendingText = '';
     function renderStreamingContent(bubble, fullText) {
-        bubble.classList.add('streaming-bubble');
-        if (hasSections(fullText)) {
+        _streamPendingText = fullText;
+        if (_streamRafId) return;  // Already scheduled
+        _streamRafId = requestAnimationFrame(() => {
+            _streamRafId = null;
+            const text = _streamPendingText;
+            bubble.classList.add('streaming-bubble');
+            // During streaming, skip the expensive section parsing — use raw markdown
             bubble.innerHTML = `
                 <div class="streaming-response">
-                    ${renderSections(fullText, true /* streaming */)}
+                    ${renderMarkdown(text)}
                     <span class="streaming-caret" aria-hidden="true"></span>
                 </div>
             `;
-        } else {
-            bubble.innerHTML = `
-                <div class="streaming-response">
-                    ${renderMarkdown(fullText)}
-                    <span class="streaming-caret" aria-hidden="true"></span>
-                </div>
-            `;
-        }
+        });
     }
 
     // ── Finalize after stream completes ────────────────────
@@ -871,7 +898,14 @@ export function renderChat(container) {
         if (confidence !== null && confidence !== undefined && Number.isFinite(confidence)) {
             const level = confidence > 0.85 ? 'high' : confidence > 0.6 ? 'medium' : 'low';
             const pct   = (confidence * 100).toFixed(0);
-            metaHtml += `<span class="confidence-badge confidence-${level}">🎯 ${pct}% Confidence</span>`;
+            metaHtml += `<span class="confidence-badge confidence-${level} confidence-animated">
+                🎯 <span class="conf-value conf-${level}" data-target="${pct}">0</span><span class="conf-${level}">% Confidence</span>
+            </span>`;
+            // Animate counter after DOM insert
+            requestAnimationFrame(() => {
+                const valEl = meta.querySelector('.conf-value[data-target]');
+                if (valEl) animateConfidenceCounter(valEl, parseInt(pct));
+            });
         }
 
         // Grounding badge (RAG-backed vs not)
@@ -1117,7 +1151,10 @@ export function renderChat(container) {
         let metaHtml = '';
         if (confidence !== null && confidence !== undefined && Number.isFinite(confidence)) {
             const level = confidence > 0.85 ? 'high' : confidence > 0.6 ? 'medium' : 'low';
-            metaHtml += `<span class="confidence-badge confidence-${level}">🎯 ${(confidence * 100).toFixed(0)}% Confidence</span>`;
+            const pct = (confidence * 100).toFixed(0);
+            metaHtml += `<span class="confidence-badge confidence-${level} confidence-animated">
+                🎯 <span class="conf-value conf-${level}" data-target="${pct}">0</span><span class="conf-${level}">% Confidence</span>
+            </span>`;
         }
         metaHtml += renderGroundingBadge(citations, retrievalMeta);
         if (citations && citations.length) {
@@ -1167,6 +1204,10 @@ export function renderChat(container) {
         });
 
         messagesEl.scrollTop = messagesEl.scrollHeight;
+
+        // Trigger confidence counter animation
+        const confEl = msg.querySelector('.conf-value[data-target]');
+        if (confEl) animateConfidenceCounter(confEl, parseInt(confEl.dataset.target));
     }
 
     // ── Image upload handler ────────────────────────────────

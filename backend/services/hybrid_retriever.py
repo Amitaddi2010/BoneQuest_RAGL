@@ -420,7 +420,7 @@ class HybridRetriever:
         # 11. Build context and citations
         docs_by_id = {d.id: d for d in docs}
         context_parts, citations, chunks_meta = self._build_output(
-            selected, docs_by_id, query_tokens
+            selected, docs_by_id, query_tokens, retrieval_method
         )
 
         # 12. Deduplication
@@ -634,11 +634,36 @@ class HybridRetriever:
         hits = sum(1 for p in set(phrases) if p in c)
         return hits / max(len(set(phrases)), 1)
 
+    def _format_reasoning_label(self, retrieval_method: str) -> str:
+        """Convert internal retrieval_method to a human-readable reasoning label."""
+        rm = (retrieval_method or "").lower()
+
+        # Map signal keys to display names
+        signals = []
+        if "bm25" in rm:
+            signals.append("BM25")
+        if "semantic" in rm:
+            signals.append("Semantic")
+        if "tree" in rm:
+            signals.append("Tree")
+
+        if not signals:
+            # Fallback for unknown method identifiers
+            if "only" in rm:
+                return f"{rm.replace('_only', '').replace('_', ' ').title()} retrieval"
+            return "Hybrid retrieval"
+
+        if len(signals) == 1:
+            return f"{signals[0]} retrieval"
+
+        return f"Hybrid {'+'.join(signals)} retrieval"
+
     def _build_output(
         self,
         selected: List[Dict],
         docs_by_id: Dict,
         query_tokens: List[str],
+        retrieval_method: str = "hybrid_bm25_semantic_rrf",
     ) -> Tuple[List[str], List[Dict], List[Dict]]:
         """Build context text, citations, and chunk metadata."""
         query_token_set = set(query_tokens)
@@ -670,7 +695,7 @@ class HybridRetriever:
                 "section": chunk.section or "General",
                 "page_range": chunk.page_label or "",
                 "evidence_strength": "moderate",
-                "reasoning": "Hybrid BM25+semantic retrieval",
+                "reasoning": self._format_reasoning_label(retrieval_method),
                 "content": content,
                 "text": content,
                 "snippet": content[:220] + ("..." if len(content) > 220 else ""),
