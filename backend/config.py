@@ -31,7 +31,7 @@ class Settings:
     APP_ENV: str = os.getenv("APP_ENV", "development")
     APP_DEBUG: bool = os.getenv("APP_DEBUG", "true").lower() == "true"
     APP_HOST: str = os.getenv("APP_HOST", "0.0.0.0")
-    APP_PORT: int = int(os.getenv("APP_PORT", "8000"))
+    APP_PORT: int = int(os.getenv("PORT", os.getenv("APP_PORT", "8000")))
     CORS_ORIGINS: list = os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
 
     # --- Groq Models ---
