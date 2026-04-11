@@ -24,6 +24,11 @@ dist/
 
 # Uploads & data
 backend/data/uploads/
+bonequest.db
+
+# Allow packed auto-zip chunks to bypass the ignore rules
+!backend/packed_db.zip
+!backend/packed_uploads_*.zip
 
 # OS
 .DS_Store

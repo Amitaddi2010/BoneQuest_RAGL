@@ -81,6 +81,14 @@ async def health_check():
 # ── Startup Event ──────────────────────────────────────────
 @app.on_event("startup")
 async def startup():
+    # --- Auto-Unpack Pre-indexed Assets ---
+    try:
+        import unpack_assets
+        unpack_assets.unpack_all()
+    except Exception as e:
+        print(f"   [!] Failed to run auto-unpack: {e}")
+    # --------------------------------------
+
     print("🦴 BoneQuest v2 API starting...")
     print(f"   Environment: {settings.APP_ENV}")
     print(f"   Groq API: {'✓ configured' if settings.GROQ_API_KEY else '✗ missing'}")
